@@ -38,17 +38,20 @@ jobs:
             dotnet publish -f net8.0-android -c Release -p:AndroidPackageFormat=apk
           } 2>&1 | tee build.log
 
-      - name: Publish log (and APK if built) as release
+      - name: Push log + APK to artifacts branch
         if: always()
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: diag-${{ github.run_number }}
-          name: "Build ${{ github.run_number }} output"
-          files: |
-            build.log
-            bin/Release/net8.0-android/publish/*-Signed.apk
+        shell: bash
+        run: |
+          mkdir -p /tmp/out
+          cp build.log /tmp/out/ 2>/dev/null || true
+          cp bin/Release/net8.0-android/publish/*-Signed.apk /tmp/out/ 2>/dev/null || true
+          cd /tmp/out
+          git init -q -b artifacts
+          git config user.email "ci@github"; git config user.name "CI"
+          git add -A && git commit -qm "run ${{ github.run_number }} ${{ job.status }}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" artifacts
 
-      - name: Also keep apk-latest tag on success
+      - name: Release APK on success
         if: success()
         uses: softprops/action-gh-release@v2
         with:
