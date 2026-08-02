@@ -1,5 +1,5 @@
 using System.Collections.ObjectModel;
-using OpenMetaverse;
+using LibreMetaverse;
 using SLMobileViewer.Services;
 
 namespace SLMobileViewer;

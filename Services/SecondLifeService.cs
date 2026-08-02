@@ -1,5 +1,4 @@
-using System.Reflection;
-using OpenMetaverse;
+using LibreMetaverse;
 
 namespace SLMobileViewer.Services;
 
@@ -26,17 +25,15 @@ public sealed class SecondLifeService
     {
         Client = new GridClient();
 
-        // Lightweight mobile profile
-        Client.Settings.MULTIPLE_SIMS = false;
-        Client.Settings.ALWAYS_DECODE_OBJECTS = true;
-        Client.Settings.ALWAYS_REQUEST_OBJECTS = true;
-        Client.Settings.OBJECT_TRACKING = true;
-        Client.Settings.AVATAR_TRACKING = true;
-        Client.Settings.SEND_AGENT_UPDATES = true;
-        Client.Settings.STORE_LAND_PATCHES = false;
-        Client.Settings.USE_ASSET_CACHE = false;
-        Client.Settings.LOG_ALL_CAPS_ERRORS = false;
-        Client.Settings.THROTTLE_OUTGOING_PACKETS = true;
+        // Lightweight mobile profile (LibreMetaverse 3.x settings layout)
+        Settings.UserAgent = "SLMobileViewer/1.0";
+        Client.Settings.Agent.MultipleSims = false;
+        Client.Settings.Agent.SendUpdates = true;
+        Client.Settings.World.AlwaysDecodeObjects = true;
+        Client.Settings.World.AlwaysRequestObjects = true;
+        Client.Settings.World.TrackObjects = true;
+        Client.Settings.World.TrackAvatars = true;
+        Client.Settings.World.StoreLandPatches = false;
 
         CullEngine = new SpatialCullEngine(Client);
 
@@ -68,74 +65,42 @@ public sealed class SecondLifeService
     }
 
     /// <summary>Asynchronous login. Returns (success, message).</summary>
-    public Task<(bool ok, string message)> LoginAsync(string firstName, string lastName, string password, string startLocation)
-    {
-        return Task.Run(() =>
-        {
-            try
-            {
-                var lp = Client.Network.DefaultLoginParams(
-                    firstName.Trim(), lastName.Trim(), password, "SLMobileViewer", "1.0");
-
-                lp.Start = startLocation switch
-                {
-                    "last" or "" or null => "last",
-                    "home" => "home",
-                    _ => startLocation.StartsWith("uri:", StringComparison.OrdinalIgnoreCase)
-                            ? startLocation
-                            : NetworkManager.StartLocation(startLocation, 128, 128, 25)
-                };
-
-                bool ok = Client.Network.Login(lp);
-                if (ok)
-                {
-                    SetAdultMaturity();
-                    CullEngine.Start();
-                }
-                return (ok, ok ? Client.Network.LoginMessage
-                               : $"{Client.Network.LoginErrorKey}: {Client.Network.LoginMessage}");
-            }
-            catch (Exception ex)
-            {
-                return (false, ex.Message);
-            }
-        });
-    }
-
-    /// <summary>
-    /// Adult maturity handshake. LibreMetaverse has moved this API between versions
-    /// (DirectoryManager.SetMaturityPreference vs AgentManager.SetAgentAccess), so we
-    /// resolve whichever is present at runtime — guaranteeing this compiles on any 2.x/3.x.
-    /// </summary>
-    private void SetAdultMaturity()
+    public async Task<(bool ok, string message)> LoginAsync(string firstName, string lastName, string password, string startLocation)
     {
         try
         {
-            var dir = Client.Directory;
-            var m = dir.GetType().GetMethod("SetMaturityPreference");
-            if (m != null)
-            {
-                var pType = m.GetParameters()[0].ParameterType;
-                object arg = pType.IsEnum ? Enum.Parse(pType, "Adult") : "A";
-                m.Invoke(dir, new[] { arg });
-                return;
-            }
+            var lp = Client.Network.DefaultLoginParams(
+                firstName.Trim(), lastName.Trim(), password, "SLMobileViewer", "1.0");
 
-            var self = Client.Self;
-            var m2 = self.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                         .FirstOrDefault(x => x.Name == "SetAgentAccess");
-            if (m2 != null)
+            lp.Start = startLocation switch
             {
-                var args = m2.GetParameters().Length == 1
-                    ? new object?[] { "A" }
-                    : new object?[] { "A", null };
-                m2.Invoke(self, args);
+                "last" or "" or null => "last",
+                "home" => "home",
+                _ => startLocation.StartsWith("uri:", StringComparison.OrdinalIgnoreCase)
+                        ? startLocation
+                        : NetworkManager.StartLocation(startLocation, 128, 128, 25)
+            };
+
+            bool ok = await Client.Network.LoginAsync(lp).ConfigureAwait(false);
+            if (ok)
+            {
+                await SetAdultMaturityAsync().ConfigureAwait(false);
+                CullEngine.Start();
             }
+            return (ok, ok ? Client.Network.LoginMessage
+                           : $"{Client.Network.LoginErrorKey}: {Client.Network.LoginMessage}");
         }
-        catch
+        catch (Exception ex)
         {
-            // Maturity preference is best-effort; never fatal.
+            return (false, ex.Message);
         }
+    }
+
+    /// <summary>Adult maturity handshake ("A" = Adult access).</summary>
+    private async Task SetAdultMaturityAsync()
+    {
+        try { await Client.Self.SetAgentAccessAsync("A").ConfigureAwait(false); }
+        catch { /* best-effort; never fatal */ }
     }
 
     public void SendLocalChat(string message)
