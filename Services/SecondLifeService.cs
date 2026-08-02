@@ -21,9 +21,19 @@ public sealed class SecondLifeService
     public event Action<ScriptDialogEventArgs>? ScriptDialogReceived;
     public event Action<string>? StatusChanged;
 
+    private readonly List<string> _loginTrace = new();
+
     private SecondLifeService()
     {
         Client = new GridClient();
+
+        // Diagnostic: record every login stage BEFORE the library's failure path
+        // can overwrite the server's real message with "Canceled".
+        Client.Network.LoginProgress += (s, e) =>
+        {
+            lock (_loginTrace)
+                _loginTrace.Add($"{e.Status}{(string.IsNullOrEmpty(e.FailReason) ? "" : $" [{e.FailReason}]")}: {e.Message}");
+        };
 
         // Lightweight mobile profile (LibreMetaverse 3.x settings layout)
         Settings.UserAgent = "SLMobileViewer/1.0";
@@ -69,6 +79,10 @@ public sealed class SecondLifeService
     {
         try
         {
+            // SL legacy protocol: only the first 16 chars of the password are hashed.
+            if (password.Length > 16) password = password[..16];
+            lock (_loginTrace) _loginTrace.Clear();
+
             var lp = Client.Network.DefaultLoginParams(
                 firstName.Trim(), lastName.Trim(), password, "SLMobileViewer", "1.0");
 
@@ -87,8 +101,11 @@ public sealed class SecondLifeService
                 await SetAdultMaturityAsync().ConfigureAwait(false);
                 CullEngine.Start();
             }
-            return (ok, ok ? Client.Network.LoginMessage
-                           : $"{Client.Network.LoginErrorKey}: {Client.Network.LoginMessage}");
+            if (ok) return (true, Client.Network.LoginMessage);
+
+            string trace;
+            lock (_loginTrace) trace = string.Join("\n", _loginTrace);
+            return (false, $"{Client.Network.LoginErrorKey}: {Client.Network.LoginMessage}\n-- server trace --\n{trace}");
         }
         catch (Exception ex)
         {
