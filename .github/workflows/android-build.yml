@@ -44,7 +44,11 @@ jobs:
         run: |
           mkdir -p /tmp/out
           cp build.log /tmp/out/ 2>/dev/null || true
-          cp bin/Release/net8.0-android/publish/*-Signed.apk /tmp/out/ 2>/dev/null || true
+          apk=$(ls bin/Release/net8.0-android/publish/*-Signed.apk 2>/dev/null | head -1)
+          if [ -n "$apk" ]; then
+            cp "$apk" /tmp/apk.apk
+            ( cd /tmp/out && split -b 4m -d /tmp/apk.apk apkchunk_ && sha256sum /tmp/apk.apk | cut -d' ' -f1 > apk.sha256 && basename "$apk" > apk.name )
+          fi
           cd /tmp/out
           git init -q -b artifacts
           git config user.email "ci@github"; git config user.name "CI"
