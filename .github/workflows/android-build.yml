@@ -1,0 +1,48 @@
+name: Build Signed Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # allows publishing the APK as a release asset
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: 17
+
+      - name: Install MAUI Android workload
+        run: dotnet workload install maui-android
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Publish signed Release APK
+        run: dotnet publish -f net8.0-android -c Release -p:AndroidPackageFormat=apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: com.viewer.slmobile-Signed
+          path: bin/Release/net8.0-android/publish/*-Signed.apk
+
+      - name: Publish APK as release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: "SL Mobile Viewer APK"
+          files: bin/Release/net8.0-android/publish/*-Signed.apk

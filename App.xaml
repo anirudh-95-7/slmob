@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Application xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="SLMobileViewer.App">
+    <Application.Resources>
+        <ResourceDictionary>
+            <Color x:Key="Bg">#1B2838</Color>
+            <Color x:Key="Panel">#22303F</Color>
+            <Color x:Key="Accent">#2F89D8</Color>
+            <Color x:Key="Fg">#E8EEF4</Color>
+            <Style TargetType="Entry">
+                <Setter Property="TextColor" Value="{StaticResource Fg}" />
+                <Setter Property="BackgroundColor" Value="{StaticResource Panel}" />
+                <Setter Property="PlaceholderColor" Value="#7A8A99" />
+            </Style>
+            <Style TargetType="Button">
+                <Setter Property="BackgroundColor" Value="{StaticResource Accent}" />
+                <Setter Property="TextColor" Value="White" />
+                <Setter Property="CornerRadius" Value="8" />
+            </Style>
+            <Style TargetType="Label">
+                <Setter Property="TextColor" Value="{StaticResource Fg}" />
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

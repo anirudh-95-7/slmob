@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="SLMobileViewer.MainPage"
+             Title="SL Mobile Viewer"
+             BackgroundColor="{StaticResource Bg}">
+
+    <Grid>
+
+        <!-- ============ 1. LOGIN PANEL ============ -->
+        <ScrollView x:Name="LoginPanel">
+            <VerticalStackLayout Padding="24" Spacing="14" VerticalOptions="Center">
+                <Label Text="SL Mobile Viewer" FontSize="28" FontAttributes="Bold" HorizontalOptions="Center" />
+                <Label Text="Second Life / OpenSim" FontSize="13" TextColor="#7A8A99" HorizontalOptions="Center" />
+
+                <Entry x:Name="FirstNameEntry" Placeholder="First Name" />
+                <Entry x:Name="LastNameEntry" Placeholder="Last Name (Resident if none)" />
+                <Entry x:Name="PasswordEntry" Placeholder="Password" IsPassword="True" />
+                <Entry x:Name="StartLocationEntry" Placeholder="Start: last, home, or region name" Text="last" />
+
+                <Button x:Name="ConnectButton" Text="Connect" HeightRequest="48" Clicked="OnConnectClicked" />
+                <ActivityIndicator x:Name="LoginSpinner" IsRunning="False" Color="{StaticResource Accent}" />
+                <Label x:Name="LoginStatusLabel" TextColor="#E0A040" HorizontalOptions="Center" />
+            </VerticalStackLayout>
+        </ScrollView>
+
+        <!-- ============ 2. MAIN VIEWPORT PANEL ============ -->
+        <Grid x:Name="ViewportPanel" IsVisible="False" RowDefinitions="Auto,2*,Auto,1.2*,Auto" Padding="10" RowSpacing="8">
+
+            <Label Grid.Row="0" x:Name="StatusLabel" Text="Connected" FontSize="12" TextColor="#68C060" />
+
+            <!-- Chat log -->
+            <Border Grid.Row="1" BackgroundColor="{StaticResource Panel}" StrokeThickness="0" Padding="6">
+                <CollectionView x:Name="ChatList" ItemsUpdatingScrollMode="KeepLastItemInView">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="x:String">
+                            <Label Text="{Binding .}" FontSize="13" Padding="2,1" />
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+            </Border>
+
+            <!-- Chat entry -->
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                <Entry x:Name="ChatEntry" Placeholder="Say something..." Completed="OnSendClicked" />
+                <Button Grid.Column="1" Text="Send" WidthRequest="80" Clicked="OnSendClicked" />
+            </Grid>
+
+            <!-- 20 m nearby prims -->
+            <Border Grid.Row="3" BackgroundColor="{StaticResource Panel}" StrokeThickness="0" Padding="6">
+                <Grid RowDefinitions="Auto,*">
+                    <Label Text="Nearby Objects (20 m bubble)" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
+                    <CollectionView Grid.Row="1" x:Name="NearbyList">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="*,Auto" Padding="2,1">
+                                    <Label Text="{Binding Name}" FontSize="12" LineBreakMode="TailTruncation" />
+                                    <Label Grid.Column="1" Text="{Binding DistanceText}" FontSize="12" TextColor="#7A8A99" />
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </Grid>
+            </Border>
+
+            <Button Grid.Row="4" Text="Log Out" BackgroundColor="#8A3A3A" Clicked="OnLogoutClicked" />
+        </Grid>
+
+        <!-- ============ 3. LSL BLUE MENU (bottom-sheet modal) ============ -->
+        <Grid x:Name="DialogOverlay" IsVisible="False" BackgroundColor="#99000000">
+            <Border VerticalOptions="End" BackgroundColor="#274B6D" StrokeThickness="0" Padding="16"
+                    StrokeShape="RoundRectangle 16,16,0,0">
+                <VerticalStackLayout Spacing="10">
+                    <Label x:Name="DialogTitleLabel" FontAttributes="Bold" FontSize="15" TextColor="White" />
+                    <Label x:Name="DialogMessageLabel" FontSize="13" TextColor="#D8E4F0" />
+                    <FlexLayout x:Name="DialogButtonsLayout" Wrap="Wrap" JustifyContent="Start" />
+                    <Button Text="Ignore" BackgroundColor="#44576B" Clicked="OnDialogIgnoreClicked" />
+                </VerticalStackLayout>
+            </Border>
+        </Grid>
+
+    </Grid>
+</ContentPage>
