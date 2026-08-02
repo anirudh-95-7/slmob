@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # allows publishing the APK as a release asset
+  contents: write
 
 jobs:
   build:
@@ -25,22 +25,31 @@ jobs:
           distribution: microsoft
           java-version: 17
 
-      - name: Install MAUI Android workload
-        run: dotnet workload install maui-android
+      - name: Build (logged)
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            echo "== workload install =="
+            dotnet workload install maui-android
+            echo "== restore =="
+            dotnet restore
+            echo "== publish =="
+            dotnet publish -f net8.0-android -c Release -p:AndroidPackageFormat=apk
+          } 2>&1 | tee build.log
 
-      - name: Restore
-        run: dotnet restore
-
-      - name: Publish signed Release APK
-        run: dotnet publish -f net8.0-android -c Release -p:AndroidPackageFormat=apk
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - name: Publish log (and APK if built) as release
+        if: always()
+        uses: softprops/action-gh-release@v2
         with:
-          name: com.viewer.slmobile-Signed
-          path: bin/Release/net8.0-android/publish/*-Signed.apk
+          tag_name: diag-${{ github.run_number }}
+          name: "Build ${{ github.run_number }} output"
+          files: |
+            build.log
+            bin/Release/net8.0-android/publish/*-Signed.apk
 
-      - name: Publish APK as release asset
+      - name: Also keep apk-latest tag on success
+        if: success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk-latest
