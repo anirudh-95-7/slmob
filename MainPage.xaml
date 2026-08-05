@@ -15,7 +15,11 @@
 
                 <Entry x:Name="FirstNameEntry" Placeholder="First Name" />
                 <Entry x:Name="LastNameEntry" Placeholder="Last Name (Resident if none)" />
-                <Entry x:Name="PasswordEntry" Placeholder="Password" IsPassword="True" />
+                <Entry x:Name="PasswordEntry" Placeholder="Password" IsPassword="True" IsTextPredictionEnabled="False" IsSpellCheckEnabled="False" />
+                <HorizontalStackLayout Spacing="4">
+                    <CheckBox x:Name="ShowPwCheck" CheckedChanged="OnShowPwChanged" />
+                    <Label Text="Show password" FontSize="13" VerticalOptions="Center" />
+                </HorizontalStackLayout>
                 <Entry x:Name="StartLocationEntry" Placeholder="Start: last, home, or region name" Text="last" />
 
                 <Button x:Name="ConnectButton" Text="Connect" HeightRequest="48" Clicked="OnConnectClicked" />

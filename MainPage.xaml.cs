@@ -134,5 +134,8 @@ public partial class MainPage : ContentPage
         LoginStatusLabel.Text = "Logged out.";
     }
 
+    private void OnShowPwChanged(object? sender, CheckedChangedEventArgs e)
+        => PasswordEntry.IsPassword = !e.Value;
+
     private sealed record NearbyPrimVm(string Name, string DistanceText);
 }

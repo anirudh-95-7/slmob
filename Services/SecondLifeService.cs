@@ -95,6 +95,21 @@ public sealed class SecondLifeService
                         : NetworkManager.StartLocation(startLocation, 128, 128, 25)
             };
 
+            // Unique per-install machine ID. Android hides hardware MACs, so the
+            // library would otherwise send a placeholder hash shared by EVERY
+            // Android device. Real viewers send a stable unique id0.
+            var machineId = Preferences.Get("machine_id", "");
+            if (string.IsNullOrEmpty(machineId))
+            {
+                machineId = Guid.NewGuid().ToString("N").ToUpperInvariant();
+                Preferences.Set("machine_id", machineId);
+            }
+            lp.MAC = machineId;
+            lp.ID0 = machineId;
+
+            lock (_loginTrace)
+                _loginTrace.Add($"sent: first='{lp.FirstName}' last='{lp.LastName}' passlen={password.Length} start='{lp.Start}' id0={machineId[..8]}… platform={lp.Platform}");
+
             bool ok = await Client.Network.LoginAsync(lp).ConfigureAwait(false);
             if (ok)
             {
