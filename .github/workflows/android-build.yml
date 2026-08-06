@@ -25,41 +25,42 @@ jobs:
           distribution: microsoft
           java-version: 17
 
-      - name: Build (logged)
+      - name: Build and publish outputs (self-reporting)
         shell: bash
         run: |
-          set -o pipefail
-          {
-            echo "== workload install =="
-            dotnet workload install maui-android
-            echo "== restore =="
-            dotnet restore
-            echo "== publish =="
-            dotnet publish -f net8.0-android -c Release -p:AndroidPackageFormat=apk
-          } 2>&1 | tee build.log
+          set +e
+          echo "== env ==" > build.log
+          df -h / >> build.log 2>&1
+          free -m >> build.log 2>&1
+          echo "== workload ==" >> build.log
+          dotnet workload install maui-android >> build.log 2>&1
+          echo "workload_exit=$?" >> build.log
+          echo "== restore ==" >> build.log
+          dotnet restore >> build.log 2>&1
+          echo "restore_exit=$?" >> build.log
+          echo "== publish ==" >> build.log
+          dotnet publish -f net8.0-android -c Release -p:AndroidPackageFormat=apk -v minimal >> build.log 2>&1
+          PUB=$?
+          echo "publish_exit=$PUB" >> build.log
+          df -h / >> build.log 2>&1
 
-      - name: Push log + APK to artifacts branch
-        if: always()
-        shell: bash
-        run: |
+          # ---- self-report: push results no matter what happened above ----
           mkdir -p /tmp/out
-          echo "run ${{ github.run_number }} status=${{ job.status }}" > /tmp/out/status.txt
-          cp build.log /tmp/out/ 2>/dev/null || echo "NO build.log - job died before/inside build step" > /tmp/out/build.log
+          echo "run ${{ github.run_number }} publish_exit=$PUB" > /tmp/out/status.txt
+          grep -E "error [A-Z]+[0-9]+|error CS|MSB[0-9]+|_exit=" build.log | sort -u | head -60 > /tmp/out/errors.txt
+          tail -c 200000 build.log > /tmp/out/build.log
           apk=$(ls bin/Release/net8.0-android/publish/*-Signed.apk 2>/dev/null | head -1)
           if [ -n "$apk" ]; then
             cp "$apk" /tmp/apk.apk
-            ( cd /tmp/out && split -b 4m -d /tmp/apk.apk apkchunk_ && sha256sum /tmp/apk.apk | cut -d' ' -f1 > apk.sha256 && basename "$apk" > apk.name )
+            ( cd /tmp/out && split -b 4m -d /tmp/apk.apk apkchunk_ \
+              && sha256sum /tmp/apk.apk | cut -d' ' -f1 > apk.sha256 \
+              && basename "$apk" > apk.name )
           fi
           cd /tmp/out
           git init -q -b artifacts
           git config user.email "ci@github"; git config user.name "CI"
-          git add -A && git commit -qm "run ${{ github.run_number }} ${{ job.status }}"
+          git add -A
+          git commit -qm "run ${{ github.run_number }} publish_exit=$PUB"
           git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" artifacts
-
-      - name: Release APK on success
-        if: success()
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: apk-latest
-          name: "SL Mobile Viewer APK"
-          files: bin/Release/net8.0-android/publish/*-Signed.apk
+          echo "artifact_push_exit=$?"
+          exit $PUB
