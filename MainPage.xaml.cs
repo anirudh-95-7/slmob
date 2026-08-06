@@ -22,6 +22,8 @@ public partial class MainPage : ContentPage
     private IDispatcherTimer? _renderTimer;
 
     private Primitive? _selectedPrim;
+    private Vector3 _lastDrawnPos = Vector3.Zero;
+    private bool _forceRedraw = true;
     private UUID _profileId = UUID.Zero;
     private string _profileName = "";
 
@@ -38,11 +40,13 @@ public partial class MainPage : ContentPage
 
         World3D.Cull = _sl.CullEngine;
         World3D.World = _sl.World;
+        World3D.Baker = _sl.Baker;
         World3D.Picked += OnWorldPicked;
+        _sl.Baker.Progress += OnBakeProgress;
 
         RangePicker.ItemsSource = new List<string> { "20 m", "40 m", "64 m", "96 m" };
-        RangePicker.SelectedIndex = 1;
-        _sl.CullEngine.CullRadius = 40f;
+        RangePicker.SelectedIndex = 0;
+        _sl.CullEngine.CullRadius = 20f;
 
         ApplyThemeToRenderer();
 
@@ -72,6 +76,7 @@ public partial class MainPage : ContentPage
         var current = app.UserAppTheme == AppTheme.Unspecified ? app.RequestedTheme : app.UserAppTheme;
         app.UserAppTheme = current == AppTheme.Dark ? AppTheme.Light : AppTheme.Dark;
         ApplyThemeToRenderer();
+        _forceRedraw = true;
     }
 
     private void ApplyThemeToRenderer()
@@ -128,6 +133,7 @@ public partial class MainPage : ContentPage
 
         _renderTimer?.Stop();
         _renderTimer = null;
+        _sl.StopAllMovement();
         _sl.Logout();
 
         _chatLines.Clear(); _nearby.Clear(); _people.Clear();
@@ -144,16 +150,105 @@ public partial class MainPage : ContentPage
     // ---------- render loop ----------
     private void StartRenderLoop()
     {
+        // The scene is static, so we only redraw while the user is interacting,
+        // while a bake is progressing, or when the avatar has moved.
         _renderTimer = Dispatcher.CreateTimer();
-        _renderTimer.Interval = TimeSpan.FromMilliseconds(70);
-        _renderTimer.Tick += (s, e) => { if (WorldPanel.IsVisible) World3D.InvalidateSurface(); };
+        _renderTimer.Interval = TimeSpan.FromMilliseconds(90);
+        _renderTimer.Tick += (s, e) =>
+        {
+            if (!WorldPanel.IsVisible) return;
+
+            var pos = _sl.CullEngine.AvatarPosition();
+            bool moved = Vector3.Distance(pos, _lastDrawnPos) > 0.05f;
+            if (moved || World3D.FastMode || _sl.Baker.IsBaking || _forceRedraw)
+            {
+                _lastDrawnPos = pos;
+                _forceRedraw = false;
+                World3D.InvalidateSurface();
+                CheckDrift();
+            }
+        };
         _renderTimer.Start();
+    }
+
+    private void CheckDrift()
+    {
+        if (!_sl.Baker.HasScene || _sl.Baker.IsBaking) return;
+        float drift = _sl.Baker.DriftFromOrigin();
+        if (drift > _sl.Baker.BakedRadius * 0.55f)
+            BakeLabel.Text = $"You've moved {drift:0} m from the built area — tap Rebuild";
+        BuildButton.Text = _sl.Baker.HasScene ? "Rebuild" : "Build 20 m";
+    }
+
+    // ---------- scene baking ----------
+    private void OnBuildScene(object? sender, EventArgs e)
+    {
+        float r = CurrentRange();
+        BakeBar.IsVisible = true;
+        BakeBar.Progress = 0;
+        BakeLabel.Text = "Collecting objects…";
+        _sl.Baker.Rebuild(r);
+        _forceRedraw = true;
+    }
+
+    private void OnExtendScene(object? sender, EventArgs e)
+    {
+        float r = MathF.Min(CurrentRange() * 2f, 96f);
+        SetRangePicker(r);
+        BakeBar.IsVisible = true;
+        BakeLabel.Text = $"Extending to {r:0} m in the background…";
+        _sl.Baker.Extend(r);
+        _forceRedraw = true;
+    }
+
+    private void OnBakeProgress(BakeProgress p)
+    {
+        BakeLabel.Text = p.Message;
+        BakeBar.Progress = p.Total > 0 ? Math.Clamp((double)p.Done / p.Total, 0, 1) : 0;
+        BakeBar.IsVisible = !p.Finished;
+        _forceRedraw = true;
+
+        if (p.Finished)
+        {
+            BuildButton.Text = "Rebuild";
+            ExtendButton.IsVisible = _sl.Baker.BakedRadius < 96f;
+            ExtendButton.Text = $"Extend to {MathF.Min(_sl.Baker.BakedRadius * 2f, 96f):0} m";
+        }
+    }
+
+    private float CurrentRange()
+    {
+        float[] ranges = { 20f, 40f, 64f, 96f };
+        return ranges[Math.Clamp(RangePicker.SelectedIndex, 0, 3)];
+    }
+
+    private void SetRangePicker(float r)
+    {
+        float[] ranges = { 20f, 40f, 64f, 96f };
+        for (int i = 0; i < ranges.Length; i++)
+            if (Math.Abs(ranges[i] - r) < 0.5f) { RangePicker.SelectedIndex = i; return; }
+    }
+
+    // ---------- movement ----------
+    private void OnForwardDown(object? sender, EventArgs e) => _sl.SetWalk(true, true, World3D.Yaw);
+    private void OnBackDown(object? sender, EventArgs e) => _sl.SetWalk(false, true, World3D.Yaw);
+    private void OnTurnLeftDown(object? sender, EventArgs e) => _sl.SetTurn(true, true);
+    private void OnTurnRightDown(object? sender, EventArgs e) => _sl.SetTurn(false, true);
+    private void OnJumpDown(object? sender, EventArgs e) => _sl.SetUp(true, true);
+    private void OnMoveUp(object? sender, EventArgs e) => _sl.StopAllMovement();
+
+    private void OnToggleFly(object? sender, EventArgs e)
+    {
+        bool flying = _sl.ToggleFly();
+        BtnFly.Text = flying ? "Land" : "Fly";
+        AppendChat(flying ? "* Flying" : "* Landed");
     }
 
     private void OnRangeChanged(object? sender, EventArgs e)
     {
-        float[] ranges = { 20f, 40f, 64f, 96f };
-        _sl.CullEngine.CullRadius = ranges[Math.Clamp(RangePicker.SelectedIndex, 0, 3)];
+        float r = CurrentRange();
+        _sl.CullEngine.CullRadius = MathF.Max(_sl.CullEngine.CullRadius, r);
+        if (BuildButton != null && !_sl.Baker.HasScene) BuildButton.Text = $"Build {r:0} m";
     }
 
     // ---------- world picking / object actions ----------
@@ -172,6 +267,7 @@ public partial class MainPage : ContentPage
 
             _selectedPrim = prim;
             World3D.SelectedLocalId = prim.LocalID;
+            _forceRedraw = true;
             _sl.CullEngine.RequestDetails(prim);
             UpdateSelectionCard();
             SelectionCard.IsVisible = true;
@@ -217,6 +313,7 @@ public partial class MainPage : ContentPage
         SelectionCard.IsVisible = false;
         _selectedPrim = null;
         World3D.SelectedLocalId = 0;
+        _forceRedraw = true;
     }
 
     // ---------- audio ----------

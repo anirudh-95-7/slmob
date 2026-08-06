@@ -16,6 +16,10 @@ public sealed class WorldView : SKCanvasView
 {
     public SpatialCullEngine? Cull { get; set; }
     public WorldService? World { get; set; }
+    public SceneBaker? Baker { get; set; }
+
+    /// <summary>True while the user is dragging: draw a reduced subset for responsiveness.</summary>
+    public bool FastMode { get; private set; }
 
     public float Yaw { get; set; }
     public float Pitch { get; set; } = 0.35f;
@@ -60,6 +64,7 @@ public sealed class WorldView : SKCanvasView
                 if (!_touches.ContainsKey(e.Id)) break;
                 _touches[e.Id] = e.Location;
 
+                FastMode = true;
                 if (_touches.Count == 1)
                 {
                     float dx = e.Location.X - _lastSingle.X;
@@ -86,6 +91,7 @@ public sealed class WorldView : SKCanvasView
                     (DateTime.UtcNow - _touchTime).TotalMilliseconds < 450)
                     DoPick(e.Location);
                 _touches.Remove(e.Id);
+                if (_touches.Count == 0) { FastMode = false; InvalidateSurface(); }
                 if (_touches.Count < 2) _lastPinch = 0;
                 break;
         }
@@ -181,40 +187,76 @@ public sealed class WorldView : SKCanvasView
 
         lock (_hits) _hits.Clear();
         var light = Norm(new Vector3(0.45f, 0.25f, 0.95f));
-        var draws = new List<(float dist, Action act)>();
 
-        int n = 0;
-        foreach (var prim in prims)
+        // ---- baked static geometry (painter's algorithm) ----
+        var tris = Baker?.Triangles ?? Array.Empty<BakedTri>();
+        if (tris.Length > 0)
         {
-            if (n++ > MaxPrims) break;
-            float dist = Vector3.Distance(eye, prim.Position);
-            if (!Project(prim.Position, out var cpt, out var cdepth)) continue;
+            int limit = FastMode ? Math.Min(tris.Length, 3000) : tris.Length;
 
-            float rr = MathF.Max(prim.Scale.X, MathF.Max(prim.Scale.Y, prim.Scale.Z)) * 0.5f;
-            float rpx = focal * rr / cdepth;
-            if (rpx < 2.0f) continue;                        // too small to matter
+            var order = new (float depth, int idx)[limit];
+            int visible = 0;
+            for (int i = 0; i < limit; i++)
+            {
+                ref readonly var t = ref tris[i];
+                var toEye = new Vector3(eye.X - t.Centroid.X, eye.Y - t.Centroid.Y, eye.Z - t.Centroid.Z);
+                if (Dot(t.Normal, toEye) <= 0) continue;                 // backface
+                float d = Dot(new Vector3(t.Centroid.X - eye.X, t.Centroid.Y - eye.Y, t.Centroid.Z - eye.Z), fwd);
+                if (d < 0.25f || d > far + 12f) continue;                 // behind / beyond
+                order[visible++] = (d, i);
+            }
+            Array.Sort(order, 0, visible, Comparer<(float depth, int idx)>.Create(
+                (a, b) => b.depth.CompareTo(a.depth)));
 
-            var pr = prim;
-            lock (_hits)
-                _hits.Add((cpt, rpx, cdepth, false, pr.LocalID, pr.ID, Cull.NameFor(pr)));
+            using var fill = new SKPaint { IsAntialias = false, Style = SKPaintStyle.Fill };
+            using var path = new SKPath();
 
-            bool sel = pr.LocalID == SelectedLocalId;
-            draws.Add((dist, () => DrawPrim(canvas, pr, Project, eye, light, Fog, sel)));
+            for (int k = 0; k < visible; k++)
+            {
+                ref readonly var t = ref tris[order[k].idx];
+                if (!Project(t.A, out var pa, out _) ||
+                    !Project(t.B, out var pb, out _) ||
+                    !Project(t.C, out var pc, out _)) continue;
+
+                path.Rewind();
+                path.MoveTo(pa); path.LineTo(pb); path.LineTo(pc); path.Close();
+
+                float lam = Math.Clamp(Dot(t.Normal, light), 0f, 1f) * 0.62f + 0.42f;
+                var c = Scale(t.Color, lam);
+                if (t.LocalId == SelectedLocalId) c = Scale(c, 1.45f);
+                fill.Color = Fog(c, order[k].depth);
+                canvas.DrawPath(path, fill);
+            }
         }
 
+        // ---- pick targets from live prims (cheap, centre-based) ----
+        int np = 0;
+        foreach (var prim in prims)
+        {
+            if (np++ > 400) break;
+            if (!Project(prim.Position, out var cpt, out var cdepth)) continue;
+            float rr = MathF.Max(prim.Scale.X, MathF.Max(prim.Scale.Y, prim.Scale.Z)) * 0.5f;
+            float rpx = focal * rr / cdepth;
+            if (rpx < 2f) continue;
+            lock (_hits) _hits.Add((cpt, rpx, cdepth, false, prim.LocalID, prim.ID, Cull.NameFor(prim)));
+        }
+
+        // ---- avatars (live, drawn as simple humanoids) ----
+        var avDraw = new List<(float d, Action a)>();
         foreach (var av in avatars)
         {
-            float dist = Vector3.Distance(eye, av.Position);
             if (Project(av.Position, out var apt, out var adepth))
                 lock (_hits) _hits.Add((apt, MathF.Max(200f / MathF.Max(adepth, 0.5f), 26f), adepth, true, 0, av.Id, av.Name));
             var a = av;
-            draws.Add((dist, () => DrawAvatar(canvas, a, Project, Fog)));
+            float dist = Vector3.Distance(eye, av.Position);
+            avDraw.Add((dist, () => DrawHumanoid(canvas, a.Position, a.Name, Project, Fog, light,
+                new SKColor(0xD8, 0x6A, 0xC0))));
         }
+        avDraw.Sort((x, y) => y.d.CompareTo(x.d));
+        foreach (var d in avDraw) d.a();
 
-        draws.Sort((x, y) => y.dist.CompareTo(x.dist));
-        foreach (var d in draws) d.act();
-
-        DrawSelf(canvas, self, Project);
+        DrawHumanoid(canvas, new Vector3(self.X, self.Y, self.Z), "", Project, Fog, light,
+            new SKColor(0x4F, 0xB0, 0xE8));
         DrawLabels(canvas, self, prims, Project, far);
         DrawMinimap(canvas, w, h, self, prims, avatars, far);
         DrawHud(canvas, w, h, self, prims.Count, avatars.Count);
@@ -401,6 +443,71 @@ public sealed class WorldView : SKCanvasView
         canvas.DrawLine(pf, ph, body);
         using var hp = new SKPaint { Color = new SKColor(0xB3, 0xE5, 0xFC), IsAntialias = true };
         canvas.DrawCircle(ph.X, ph.Y - width * .5f, width * .55f, hp);
+    }
+
+    /// <summary>Simple articulated figure: head, torso, arms, legs.</summary>
+    private static void DrawHumanoid(SKCanvas canvas, Vector3 pos, string name,
+        ProjectFn project, FogFn fog, Vector3 light, SKColor skin)
+    {
+        var torso = Scale(skin, 0.85f);
+        var limb = Scale(skin, 0.7f);
+
+        // centre, size  (SL: Z up; avatar ~1.9 m tall centred on pos)
+        DrawSolidBox(canvas, Off(pos, 0, 0, 0.72f), new Vector3(0.24f, 0.24f, 0.26f), skin, project, fog, light);   // head
+        DrawSolidBox(canvas, Off(pos, 0, 0, 0.25f), new Vector3(0.38f, 0.22f, 0.62f), torso, project, fog, light);  // torso
+        DrawSolidBox(canvas, Off(pos, 0, 0.26f, 0.26f), new Vector3(0.13f, 0.13f, 0.58f), limb, project, fog, light);
+        DrawSolidBox(canvas, Off(pos, 0, -0.26f, 0.26f), new Vector3(0.13f, 0.13f, 0.58f), limb, project, fog, light);
+        DrawSolidBox(canvas, Off(pos, 0, 0.11f, -0.45f), new Vector3(0.15f, 0.15f, 0.78f), limb, project, fog, light);
+        DrawSolidBox(canvas, Off(pos, 0, -0.11f, -0.45f), new Vector3(0.15f, 0.15f, 0.78f), limb, project, fog, light);
+
+        if (!string.IsNullOrEmpty(name) &&
+            project(Off(pos, 0, 0, 1.05f), out var tag, out _))
+            DrawTag(canvas, name, tag.X, tag.Y, 24, new SKColor(0xFF, 0xD5, 0xF0));
+    }
+
+    private static Vector3 Off(Vector3 p, float dx, float dy, float dz)
+        => new(p.X + dx, p.Y + dy, p.Z + dz);
+
+    private static void DrawSolidBox(SKCanvas canvas, Vector3 c, Vector3 size, SKColor col,
+        ProjectFn project, FogFn fog, Vector3 light)
+    {
+        float hx = size.X * .5f, hy = size.Y * .5f, hz = size.Z * .5f;
+        var w = new[]
+        {
+            new Vector3(c.X-hx, c.Y-hy, c.Z-hz), new Vector3(c.X+hx, c.Y-hy, c.Z-hz),
+            new Vector3(c.X+hx, c.Y+hy, c.Z-hz), new Vector3(c.X-hx, c.Y+hy, c.Z-hz),
+            new Vector3(c.X-hx, c.Y-hy, c.Z+hz), new Vector3(c.X+hx, c.Y-hy, c.Z+hz),
+            new Vector3(c.X+hx, c.Y+hy, c.Z+hz), new Vector3(c.X-hx, c.Y+hy, c.Z+hz)
+        };
+        int[][] faces = { new[]{0,1,2,3}, new[]{4,5,6,7}, new[]{0,1,5,4}, new[]{1,2,6,5}, new[]{2,3,7,6}, new[]{3,0,4,7} };
+        Vector3[] norms = { new(0,0,-1), new(0,0,1), new(0,-1,0), new(1,0,0), new(0,1,0), new(-1,0,0) };
+
+        var order = new List<(float d, int f)>(6);
+        var pts = new SKPoint[8];
+        var depths = new float[8];
+        for (int i = 0; i < 8; i++)
+            if (!project(w[i], out pts[i], out depths[i])) return;
+
+        for (int f = 0; f < 6; f++)
+        {
+            float d = 0;
+            foreach (var i in faces[f]) d += depths[i];
+            order.Add((d / 4f, f));
+        }
+        order.Sort((a, b) => b.d.CompareTo(a.d));
+
+        using var paint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
+        using var path = new SKPath();
+        foreach (var (d, f) in order)
+        {
+            path.Rewind();
+            path.MoveTo(pts[faces[f][0]]);
+            for (int i = 1; i < 4; i++) path.LineTo(pts[faces[f][i]]);
+            path.Close();
+            float lam = Math.Clamp(Dot(norms[f], light), 0f, 1f) * 0.6f + 0.45f;
+            paint.Color = fog(Scale(col, lam), d);
+            canvas.DrawPath(path, paint);
+        }
     }
 
     private void DrawLabels(SKCanvas canvas, Vector3 self, List<Primitive> prims, ProjectFn project, float far)

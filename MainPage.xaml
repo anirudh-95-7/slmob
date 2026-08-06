@@ -77,15 +77,47 @@
                     </Border>
                 </Grid>
 
-                <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="6">
-                    <Label Text="Range" VerticalOptions="Center" Style="{StaticResource Muted}" />
-                    <Picker Grid.Column="1" x:Name="RangePicker" WidthRequest="96" FontSize="12"
-                            SelectedIndexChanged="OnRangeChanged" />
-                    <Label Grid.Column="2" x:Name="AudioLabel" Style="{StaticResource Muted}"
-                           VerticalOptions="Center" LineBreakMode="TailTruncation" />
-                    <Button Grid.Column="3" x:Name="AudioButton" Text="Audio" Style="{StaticResource Ghost}"
-                            Clicked="OnAudioToggle" />
-                </Grid>
+                <VerticalStackLayout Grid.Row="1" Spacing="5">
+
+                    <!-- bake status / actions -->
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                        <Label x:Name="BakeLabel" Style="{StaticResource Muted}" VerticalOptions="Center"
+                               LineBreakMode="TailTruncation" Text="Scene not built yet" />
+                        <Button Grid.Column="1" x:Name="BuildButton" Text="Build 20 m"
+                                FontSize="12" Padding="10,6" Clicked="OnBuildScene" />
+                        <Button Grid.Column="2" x:Name="ExtendButton" Text="Extend"
+                                Style="{StaticResource Ghost}" FontSize="12" Padding="10,6"
+                                IsVisible="False" Clicked="OnExtendScene" />
+                    </Grid>
+                    <ProgressBar x:Name="BakeBar" Progress="0" IsVisible="False" />
+
+                    <!-- movement pad -->
+                    <Grid ColumnDefinitions="*,*,*,*,*,*" ColumnSpacing="4">
+                        <Button x:Name="BtnTurnL" Text="&#x21B0;" FontSize="17" Padding="0,10"
+                                Pressed="OnTurnLeftDown" Released="OnMoveUp" />
+                        <Button Grid.Column="1" x:Name="BtnFwd" Text="&#x25B2;" FontSize="15" Padding="0,10"
+                                Pressed="OnForwardDown" Released="OnMoveUp" />
+                        <Button Grid.Column="2" x:Name="BtnTurnR" Text="&#x21B1;" FontSize="17" Padding="0,10"
+                                Pressed="OnTurnRightDown" Released="OnMoveUp" />
+                        <Button Grid.Column="3" x:Name="BtnBack" Text="&#x25BC;" FontSize="15" Padding="0,10"
+                                Pressed="OnBackDown" Released="OnMoveUp" />
+                        <Button Grid.Column="4" x:Name="BtnJump" Text="Jump" FontSize="11" Padding="0,10"
+                                Pressed="OnJumpDown" Released="OnMoveUp" />
+                        <Button Grid.Column="5" x:Name="BtnFly" Text="Fly" FontSize="11" Padding="0,10"
+                                Style="{StaticResource Ghost}" Clicked="OnToggleFly" />
+                    </Grid>
+
+                    <!-- range + audio -->
+                    <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="6">
+                        <Label Text="Range" VerticalOptions="Center" Style="{StaticResource Muted}" />
+                        <Picker Grid.Column="1" x:Name="RangePicker" WidthRequest="92" FontSize="12"
+                                SelectedIndexChanged="OnRangeChanged" />
+                        <Label Grid.Column="2" x:Name="AudioLabel" Style="{StaticResource Muted}"
+                               VerticalOptions="Center" LineBreakMode="TailTruncation" />
+                        <Button Grid.Column="3" x:Name="AudioButton" Text="Audio" Style="{StaticResource Ghost}"
+                                FontSize="12" Padding="10,6" Clicked="OnAudioToggle" />
+                    </Grid>
+                </VerticalStackLayout>
             </Grid>
 
             <!-- CHAT -->

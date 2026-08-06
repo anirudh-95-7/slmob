@@ -14,6 +14,7 @@ public sealed class SecondLifeService
     public GridClient Client { get; }
     public SpatialCullEngine CullEngine { get; }
     public WorldService World { get; }
+    public SceneBaker Baker { get; }
     public AudioStreamService Audio { get; } = new();
 
     public bool IsConnected => Client.Network.Connected;
@@ -49,6 +50,7 @@ public sealed class SecondLifeService
 
         CullEngine = new SpatialCullEngine(Client);
         World = new WorldService(Client);
+        Baker = new SceneBaker(Client, CullEngine);
 
         // ---- network callbacks -> UI thread ----
         Client.Self.ChatFromSimulator += (s, e) =>
@@ -149,6 +151,91 @@ public sealed class SecondLifeService
     public void ReplyToScriptDialog(int channel, int buttonIndex, string buttonLabel, UUID objectID)
         => Client.Self.ReplyToScriptDialog(channel, buttonIndex, buttonLabel, objectID);
 
+    // ---------------- movement ----------------
+
+    /// <summary>Face the camera direction (radians, 0 = east) and start/stop walking.</summary>
+    public void SetWalk(bool forward, bool on, float cameraYaw)
+    {
+        try
+        {
+            if (on) Client.Self.Movement.BodyRotation = YawQuat(cameraYaw);
+            if (forward) Client.Self.Movement.AtPos = on;
+            else Client.Self.Movement.AtNeg = on;
+            Client.Self.Movement.SendUpdate(true);
+        }
+        catch { }
+    }
+
+    public void SetStrafe(bool left, bool on, float cameraYaw)
+    {
+        try
+        {
+            if (on) Client.Self.Movement.BodyRotation = YawQuat(cameraYaw);
+            if (left) Client.Self.Movement.LeftPos = on;
+            else Client.Self.Movement.LeftNeg = on;
+            Client.Self.Movement.SendUpdate(true);
+        }
+        catch { }
+    }
+
+    public void SetTurn(bool left, bool on)
+    {
+        try
+        {
+            if (left) Client.Self.Movement.YawPos = on;
+            else Client.Self.Movement.YawNeg = on;
+            Client.Self.Movement.SendUpdate(true);
+        }
+        catch { }
+    }
+
+    public void SetUp(bool up, bool on)
+    {
+        try
+        {
+            if (up) Client.Self.Movement.UpPos = on;
+            else Client.Self.Movement.UpNeg = on;
+            Client.Self.Movement.SendUpdate(true);
+        }
+        catch { }
+    }
+
+    public bool ToggleFly()
+    {
+        try
+        {
+            Client.Self.Movement.Fly = !Client.Self.Movement.Fly;
+            Client.Self.Movement.SendUpdate(true);
+            return Client.Self.Movement.Fly;
+        }
+        catch { return false; }
+    }
+
+    public bool ToggleRun()
+    {
+        try
+        {
+            Client.Self.Movement.AlwaysRun = !Client.Self.Movement.AlwaysRun;
+            Client.Self.Movement.SendUpdate(true);
+            return Client.Self.Movement.AlwaysRun;
+        }
+        catch { return false; }
+    }
+
+    public void StopAllMovement()
+    {
+        try
+        {
+            var m = Client.Self.Movement;
+            m.AtPos = m.AtNeg = m.LeftPos = m.LeftNeg = m.UpPos = m.UpNeg = m.YawPos = m.YawNeg = false;
+            m.SendUpdate(true);
+        }
+        catch { }
+    }
+
+    private static Quaternion YawQuat(float yaw)
+        => new(0f, 0f, MathF.Sin(yaw * 0.5f), MathF.Cos(yaw * 0.5f));
+
     /// <summary>Touch (click) an in-world object.</summary>
     public void Touch(uint localId)
     {
@@ -177,6 +264,7 @@ public sealed class SecondLifeService
     public void Logout()
     {
         CullEngine.Stop();
+        Baker.Clear();
         World.Stop();
         Audio.Stop();
         if (IsConnected) Client.Network.Logout();
