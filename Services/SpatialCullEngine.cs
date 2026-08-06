@@ -20,6 +20,7 @@ public sealed class SpatialCullEngine
     private readonly GridClient _client;
     private readonly ConcurrentDictionary<uint, Primitive> _nearby = new();
     private readonly ConcurrentDictionary<UUID, string> _names = new();
+    private readonly ConcurrentDictionary<UUID, Primitive.ObjectProperties> _props = new();
     private readonly ConcurrentDictionary<UUID, byte> _nameRequested = new();
     private Timer? _sweepTimer;
     private Vector3 _avatarPos = Vector3.Zero;
@@ -36,12 +37,16 @@ public sealed class SpatialCullEngine
 
         _client.Objects.ObjectPropertiesFamily += (s, e) =>
         {
-            if (e.Properties != null && !string.IsNullOrEmpty(e.Properties.Name))
+            if (e.Properties == null) return;
+            _props[e.Properties.ObjectID] = e.Properties;
+            if (!string.IsNullOrEmpty(e.Properties.Name))
                 _names[e.Properties.ObjectID] = e.Properties.Name;
         };
         _client.Objects.ObjectProperties += (s, e) =>
         {
-            if (e.Properties != null && !string.IsNullOrEmpty(e.Properties.Name))
+            if (e.Properties == null) return;
+            _props[e.Properties.ObjectID] = e.Properties;
+            if (!string.IsNullOrEmpty(e.Properties.Name))
                 _names[e.Properties.ObjectID] = e.Properties.Name;
         };
     }
@@ -55,11 +60,27 @@ public sealed class SpatialCullEngine
         _sweepTimer = null;
         _nearby.Clear();
         _names.Clear();
+        _props.Clear();
         _nameRequested.Clear();
     }
 
     /// <summary>Thread-safe geometry snapshot for the 3D renderer.</summary>
     public List<Primitive> SnapshotPrims() => _nearby.Values.ToList();
+
+    public Primitive? FindByLocalId(uint localId)
+        => _nearby.TryGetValue(localId, out var p) ? p : null;
+
+    public Primitive.ObjectProperties? PropsFor(Primitive p)
+        => _props.TryGetValue(p.ID, out var pr) ? pr : p.Properties;
+
+    /// <summary>Ask the sim for full properties (description/owner) of one object.</summary>
+    public void RequestDetails(Primitive p)
+    {
+        var sim = _client.Network.CurrentSim;
+        if (sim == null || p.ID == UUID.Zero) return;
+        try { _client.Objects.RequestObjectPropertiesFamily(sim, p.ID); } catch { }
+        try { _client.Objects.SelectObject(sim, p.LocalID); } catch { }
+    }
 
     public string NameFor(Primitive p)
     {

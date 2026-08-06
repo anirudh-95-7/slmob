@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using LibreMetaverse;
+using SLMobileViewer.Rendering;
 using SLMobileViewer.Services;
 
 namespace SLMobileViewer;
@@ -13,13 +14,16 @@ public partial class MainPage : ContentPage
     private readonly ObservableCollection<PersonVm> _people = new();
     private readonly ObservableCollection<FriendVm> _friends = new();
     private readonly ObservableCollection<ThreadVm> _threadVms = new();
+    private readonly ObservableCollection<ThreadVm> _groupVms = new();
 
     private ScriptDialogEventArgs? _activeDialog;
     private ImThread? _openThread;
+    private ImThread? _openGroup;
     private IDispatcherTimer? _renderTimer;
 
-    // camera gesture state
-    private float _yawStart, _pitchStart, _distStart;
+    private Primitive? _selectedPrim;
+    private UUID _profileId = UUID.Zero;
+    private string _profileName = "";
 
     public MainPage()
     {
@@ -30,12 +34,17 @@ public partial class MainPage : ContentPage
         PeopleList.ItemsSource = _people;
         FriendsList.ItemsSource = _friends;
         ImThreadList.ItemsSource = _threadVms;
+        GroupThreadList.ItemsSource = _groupVms;
 
         World3D.Cull = _sl.CullEngine;
         World3D.World = _sl.World;
+        World3D.Picked += OnWorldPicked;
 
         RangePicker.ItemsSource = new List<string> { "20 m", "40 m", "64 m", "96 m" };
-        RangePicker.SelectedIndex = 0;
+        RangePicker.SelectedIndex = 1;
+        _sl.CullEngine.CullRadius = 40f;
+
+        ApplyThemeToRenderer();
 
         _sl.ChatReceived += AppendChat;
         _sl.StatusChanged += msg => StatusLabel.Text = msg;
@@ -44,6 +53,8 @@ public partial class MainPage : ContentPage
         _sl.World.AvatarsUpdated += OnAvatarsUpdated;
         _sl.World.FriendsUpdated += OnFriendsUpdated;
         _sl.World.ImUpdated += OnImUpdated;
+        _sl.World.GroupUpdated += OnGroupUpdated;
+        _sl.World.ProfileReceived += OnProfileReceived;
         _sl.World.Notice += AppendChat;
     }
 
@@ -53,7 +64,25 @@ public partial class MainPage : ContentPage
         while (_chatLines.Count > 300) _chatLines.RemoveAt(0);
     }
 
-    // ---------------- Login ----------------
+    // ---------- theme ----------
+    private void OnToggleTheme(object? sender, EventArgs e)
+    {
+        var app = Application.Current;
+        if (app == null) return;
+        var current = app.UserAppTheme == AppTheme.Unspecified ? app.RequestedTheme : app.UserAppTheme;
+        app.UserAppTheme = current == AppTheme.Dark ? AppTheme.Light : AppTheme.Dark;
+        ApplyThemeToRenderer();
+    }
+
+    private void ApplyThemeToRenderer()
+    {
+        var app = Application.Current;
+        if (app == null) return;
+        var t = app.UserAppTheme == AppTheme.Unspecified ? app.RequestedTheme : app.UserAppTheme;
+        World3D.LightTheme = t == AppTheme.Light;
+    }
+
+    // ---------- login / logout ----------
     private async void OnConnectClicked(object? sender, EventArgs e)
     {
         var first = FirstNameEntry.Text?.Trim() ?? "";
@@ -63,7 +92,7 @@ public partial class MainPage : ContentPage
 
         if (first.Length == 0 || pass.Length == 0)
         {
-            LoginStatusLabel.Text = "First name and password are required.";
+            LoginStatusLabel.Text = "Username and password are required.";
             return;
         }
 
@@ -81,8 +110,10 @@ public partial class MainPage : ContentPage
         {
             LoginPanel.IsVisible = false;
             ViewportPanel.IsVisible = true;
+            SelfNameLabel.Text = _sl.SelfName;
             StatusLabel.Text = message;
             AppendChat($"* {message}");
+            ShowTab(WorldPanel, TabWorld);
             StartRenderLoop();
         }
     }
@@ -90,80 +121,127 @@ public partial class MainPage : ContentPage
     private void OnShowPwChanged(object? sender, CheckedChangedEventArgs e)
         => PasswordEntry.IsPassword = !e.Value;
 
-    // ---------------- Render loop ----------------
+    private async void OnLogoutClicked(object? sender, EventArgs e)
+    {
+        bool yes = await DisplayAlert("Log out", "Disconnect from the grid?", "Log out", "Cancel");
+        if (!yes) return;
+
+        _renderTimer?.Stop();
+        _renderTimer = null;
+        _sl.Logout();
+
+        _chatLines.Clear(); _nearby.Clear(); _people.Clear();
+        _friends.Clear(); _threadVms.Clear(); _groupVms.Clear();
+        _selectedPrim = null; _openThread = null; _openGroup = null;
+        SelectionCard.IsVisible = false;
+        World3D.SelectedLocalId = 0;
+
+        ViewportPanel.IsVisible = false;
+        LoginPanel.IsVisible = true;
+        LoginStatusLabel.Text = "Logged out.";
+    }
+
+    // ---------- render loop ----------
     private void StartRenderLoop()
     {
         _renderTimer = Dispatcher.CreateTimer();
-        _renderTimer.Interval = TimeSpan.FromMilliseconds(70);   // ~14 fps
-        _renderTimer.Tick += (s, e) =>
-        {
-            if (WorldPanel.IsVisible) World3D.InvalidateSurface();
-        };
+        _renderTimer.Interval = TimeSpan.FromMilliseconds(70);
+        _renderTimer.Tick += (s, e) => { if (WorldPanel.IsVisible) World3D.InvalidateSurface(); };
         _renderTimer.Start();
-    }
-
-    private void OnWorldPan(object? sender, PanUpdatedEventArgs e)
-    {
-        switch (e.StatusType)
-        {
-            case GestureStatus.Started:
-                _yawStart = World3D.Yaw;
-                _pitchStart = World3D.Pitch;
-                break;
-            case GestureStatus.Running:
-                World3D.Yaw = _yawStart - (float)e.TotalX * 0.006f;
-                World3D.Pitch = Math.Clamp(_pitchStart + (float)e.TotalY * 0.005f, -0.35f, 1.35f);
-                break;
-        }
-    }
-
-    private void OnWorldPinch(object? sender, PinchGestureUpdatedEventArgs e)
-    {
-        if (e.Status == GestureStatus.Started) _distStart = World3D.Distance;
-        else if (e.Status == GestureStatus.Running)
-            World3D.Distance = Math.Clamp(_distStart / (float)Math.Max(e.Scale, 0.05), 1.5f, 60f);
     }
 
     private void OnRangeChanged(object? sender, EventArgs e)
     {
         float[] ranges = { 20f, 40f, 64f, 96f };
-        int i = Math.Clamp(RangePicker.SelectedIndex, 0, ranges.Length - 1);
-        _sl.CullEngine.CullRadius = ranges[i];
+        _sl.CullEngine.CullRadius = ranges[Math.Clamp(RangePicker.SelectedIndex, 0, 3)];
     }
 
-    // ---------------- Audio stream ----------------
+    // ---------- world picking / object actions ----------
+    private void OnWorldPicked(PickResult pick)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (pick.IsAvatar)
+            {
+                ShowProfile(pick.Id, pick.Name);
+                return;
+            }
+
+            var prim = _sl.CullEngine.FindByLocalId(pick.LocalId);
+            if (prim == null) return;
+
+            _selectedPrim = prim;
+            World3D.SelectedLocalId = prim.LocalID;
+            _sl.CullEngine.RequestDetails(prim);
+            UpdateSelectionCard();
+            SelectionCard.IsVisible = true;
+        });
+    }
+
+    private void UpdateSelectionCard()
+    {
+        if (_selectedPrim == null) return;
+        var p = _selectedPrim;
+        var props = _sl.CullEngine.PropsFor(p);
+        SelName.Text = _sl.CullEngine.NameFor(p);
+        SelDesc.Text = string.IsNullOrWhiteSpace(props?.Description) ? "(no description)" : props!.Description;
+
+        float dist = Vector3.Distance(_sl.CullEngine.AvatarPosition(), p.Position);
+        string type;
+        try { type = p.Type.ToString(); } catch { type = "Prim"; }
+        SelMeta.Text = $"{type} · {dist:0.0} m away · {p.Scale.X:0.##}×{p.Scale.Y:0.##}×{p.Scale.Z:0.##} m";
+    }
+
+    private void OnTouchObject(object? sender, EventArgs e)
+    {
+        if (_selectedPrim == null) return;
+        _sl.Touch(_selectedPrim.LocalID);
+        AppendChat($"* Touched {_sl.CullEngine.NameFor(_selectedPrim)}");
+    }
+
+    private void OnSitObject(object? sender, EventArgs e)
+    {
+        if (_selectedPrim == null) return;
+        _sl.SitOn(_selectedPrim.ID);
+        AppendChat($"* Sitting on {_sl.CullEngine.NameFor(_selectedPrim)}");
+    }
+
+    private void OnStandUp(object? sender, EventArgs e)
+    {
+        _sl.StandUp();
+        AppendChat("* Stood up");
+    }
+
+    private void OnCloseSelection(object? sender, EventArgs e)
+    {
+        SelectionCard.IsVisible = false;
+        _selectedPrim = null;
+        World3D.SelectedLocalId = 0;
+    }
+
+    // ---------- audio ----------
     private async void OnAudioToggle(object? sender, EventArgs e)
     {
         if (_sl.Audio.IsPlaying)
         {
             _sl.Audio.Stop();
-            AudioButton.Text = "Audio ▶";
             AudioLabel.Text = "Stopped";
             return;
         }
 
         var url = _sl.World.ParcelMusicUrl;
-        if (string.IsNullOrWhiteSpace(url))
-        {
-            AudioLabel.Text = "No stream on this parcel";
-            return;
-        }
+        if (string.IsNullOrWhiteSpace(url)) { AudioLabel.Text = "No stream here"; return; }
 
         AudioButton.IsEnabled = false;
         AudioLabel.Text = "Connecting...";
         var result = await _sl.Audio.PlayAsync(url);
         AudioButton.IsEnabled = true;
-
-        if (_sl.Audio.IsPlaying)
-        {
-            AudioButton.Text = "Audio ■";
-            AudioLabel.Text = string.IsNullOrEmpty(_sl.World.ParcelName)
-                ? "Playing parcel stream" : $"♪ {_sl.World.ParcelName}";
-        }
-        else AudioLabel.Text = result;
+        AudioLabel.Text = _sl.Audio.IsPlaying
+            ? (string.IsNullOrEmpty(_sl.World.ParcelName) ? "Playing" : $"♪ {_sl.World.ParcelName}")
+            : result;
     }
 
-    // ---------------- Chat ----------------
+    // ---------- chat ----------
     private void OnSendClicked(object? sender, EventArgs e)
     {
         var text = ChatEntry.Text;
@@ -173,19 +251,18 @@ public partial class MainPage : ContentPage
         ChatEntry.Text = "";
     }
 
-    // ---------------- Lists ----------------
+    // ---------- lists ----------
     private void OnNearbyUpdated(IReadOnlyList<NearbyPrim> prims)
     {
         _nearby.Clear();
-        foreach (var p in prims)
-            _nearby.Add(new NearbyPrimVm(p.Name, $"{p.Distance:0.0} m"));
+        foreach (var p in prims) _nearby.Add(new NearbyPrimVm(p.Name, $"{p.Distance:0.0} m"));
+        if (_selectedPrim != null) UpdateSelectionCard();
     }
 
     private void OnAvatarsUpdated(IReadOnlyList<NearbyAvatar> avatars)
     {
         _people.Clear();
-        foreach (var a in avatars)
-            _people.Add(new PersonVm(a.Id, a.Name, $"{a.Distance:0.0} m"));
+        foreach (var a in avatars) _people.Add(new PersonVm(a.Id, a.Name, $"{a.Distance:0.0} m"));
     }
 
     private void OnFriendsUpdated(IReadOnlyList<FriendEntry> friends)
@@ -196,11 +273,12 @@ public partial class MainPage : ContentPage
         {
             if (f.IsOnline) online++;
             _friends.Add(new FriendVm(f.Id, f.Name,
-                f.IsOnline ? Brush.LimeGreen : Brush.Gray));
+                f.IsOnline ? Brush.LimeGreen : Brush.Gray, f.IsOnline ? "online" : ""));
         }
-        FriendsHeader.Text = $"Friends — {online} online / {friends.Count} total";
+        FriendsHeader.Text = $"FRIENDS — {online} ONLINE / {friends.Count}";
     }
 
+    // ---------- IM ----------
     private void OnImUpdated(ImThread thread)
     {
         RefreshThreadList();
@@ -216,21 +294,6 @@ public partial class MainPage : ContentPage
         _threadVms.Clear();
         foreach (var t in _sl.World.Threads)
             _threadVms.Add(new ThreadVm(t, t.Name, t.Unread > 0 ? $"{t.Unread} new" : ""));
-    }
-
-    // ---------------- IM ----------------
-    private void OnPersonSelected(object? sender, SelectionChangedEventArgs e)
-    {
-        if (e.CurrentSelection.FirstOrDefault() is not PersonVm p) return;
-        PeopleList.SelectedItem = null;
-        OpenThread(_sl.World.GetOrCreateThread(p.Id, p.Name));
-    }
-
-    private void OnFriendSelected(object? sender, SelectionChangedEventArgs e)
-    {
-        if (e.CurrentSelection.FirstOrDefault() is not FriendVm f) return;
-        FriendsList.SelectedItem = null;
-        OpenThread(_sl.World.GetOrCreateThread(f.Id, f.Name));
     }
 
     private void OnThreadSelected(object? sender, SelectionChangedEventArgs e)
@@ -269,37 +332,151 @@ public partial class MainPage : ContentPage
         ImEntry.Text = "";
     }
 
-    // ---------------- Tabs ----------------
-    private void ShowTab(Grid panel, Button tab)
+    // ---------- groups ----------
+    private void OnGroupUpdated(ImThread thread)
     {
+        RefreshGroupList();
+        if (_openGroup != null && _openGroup.AgentId == thread.AgentId)
+        {
+            GroupMessages.ItemsSource = thread.Messages;
+            thread.Unread = 0;
+        }
+    }
+
+    private void RefreshGroupList()
+    {
+        _groupVms.Clear();
+        foreach (var t in _sl.World.GroupThreads)
+        {
+            if (t.AgentId == UUID.Zero) continue;
+            _groupVms.Add(new ThreadVm(t, t.Name, t.Unread > 0 ? $"{t.Unread} new" : ""));
+        }
+    }
+
+    private void OnGroupSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (e.CurrentSelection.FirstOrDefault() is not ThreadVm t) return;
+        GroupThreadList.SelectedItem = null;
+        _openGroup = t.Thread;
+        t.Thread.Unread = 0;
+        GroupTitle.Text = t.Thread.Name;
+        GroupMessages.ItemsSource = t.Thread.Messages;
+        GroupListView.IsVisible = false;
+        GroupThreadView.IsVisible = true;
+        RefreshGroupList();
+    }
+
+    private void OnGroupBack(object? sender, EventArgs e)
+    {
+        _openGroup = null;
+        GroupThreadView.IsVisible = false;
+        GroupListView.IsVisible = true;
+        RefreshGroupList();
+    }
+
+    private void OnGroupSend(object? sender, EventArgs e)
+    {
+        if (_openGroup == null) return;
+        var text = GroupEntry.Text;
+        if (string.IsNullOrWhiteSpace(text)) return;
+        _sl.World.SendGroupIm(_openGroup, text);
+        GroupEntry.Text = "";
+    }
+
+    // ---------- profiles ----------
+    private void OnPersonSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (e.CurrentSelection.FirstOrDefault() is not PersonVm p) return;
+        PeopleList.SelectedItem = null;
+        ShowProfile(p.Id, p.Name);
+    }
+
+    private void OnFriendSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (e.CurrentSelection.FirstOrDefault() is not FriendVm f) return;
+        FriendsList.SelectedItem = null;
+        ShowProfile(f.Id, f.Name);
+    }
+
+    private void ShowProfile(UUID id, string name)
+    {
+        _profileId = id;
+        _profileName = name;
+        ProfName.Text = name;
+        ProfBorn.Text = "Loading profile...";
+        ProfPartner.Text = "";
+        ProfAbout.Text = "";
+        ProfRl.Text = "";
+        _sl.World.RequestProfile(id);
+
+        WorldPanel.IsVisible = false; ChatPanel.IsVisible = false; PeoplePanel.IsVisible = false;
+        FriendsPanel.IsVisible = false; ImPanel.IsVisible = false; GroupsPanel.IsVisible = false;
+        ProfilePanel.IsVisible = true;
+    }
+
+    private void OnProfileReceived(UUID id, Avatar.AvatarProperties props)
+    {
+        if (id != _profileId) return;
+        ProfBorn.Text = string.IsNullOrWhiteSpace(props.BornOn) ? "" : $"Resident since {props.BornOn}";
+        ProfPartner.Text = props.Partner != UUID.Zero ? "Partnered" : "";
+        ProfAbout.Text = string.IsNullOrWhiteSpace(props.AboutText) ? "(nothing written)" : props.AboutText;
+        ProfRl.Text = string.IsNullOrWhiteSpace(props.FirstLifeText) ? "(nothing written)" : props.FirstLifeText;
+    }
+
+    private void OnProfileBack(object? sender, EventArgs e)
+    {
+        ProfilePanel.IsVisible = false;
+        ShowTab(PeoplePanel, TabPeople);
+    }
+
+    private void OnProfileIm(object? sender, EventArgs e)
+    {
+        if (_profileId == UUID.Zero) return;
+        ProfilePanel.IsVisible = false;
+        OpenThread(_sl.World.GetOrCreateThread(_profileId, _profileName));
+    }
+
+    private void OnProfileFriend(object? sender, EventArgs e)
+    {
+        if (_profileId == UUID.Zero) return;
+        try
+        {
+            _sl.Client.Friends.OfferFriendship(_profileId);
+            AppendChat($"* Friendship offered to {_profileName}");
+        }
+        catch (Exception ex) { AppendChat($"* Friend offer failed: {ex.Message}"); }
+    }
+
+    // ---------- tabs ----------
+    private void ShowTab(Layout panel, Button tab)
+    {
+        ProfilePanel.IsVisible = false;
         WorldPanel.IsVisible = panel == WorldPanel;
         ChatPanel.IsVisible = panel == ChatPanel;
         PeoplePanel.IsVisible = panel == PeoplePanel;
         FriendsPanel.IsVisible = panel == FriendsPanel;
         ImPanel.IsVisible = panel == ImPanel;
+        GroupsPanel.IsVisible = panel == GroupsPanel;
 
-        foreach (var b in new[] { TabWorld, TabChat, TabPeople, TabFriends, TabIm })
-            b.BackgroundColor = b == tab ? Color.FromArgb("#2F89D8") : Color.FromArgb("#3A4A5A");
+        foreach (var b in new[] { TabWorld, TabChat, TabPeople, TabFriends, TabIm, TabGroups })
+            b.Opacity = b == tab ? 1.0 : 0.55;
     }
 
     private void OnTabWorld(object? sender, EventArgs e) => ShowTab(WorldPanel, TabWorld);
     private void OnTabChat(object? sender, EventArgs e) => ShowTab(ChatPanel, TabChat);
     private void OnTabPeople(object? sender, EventArgs e) => ShowTab(PeoplePanel, TabPeople);
     private void OnTabFriends(object? sender, EventArgs e) => ShowTab(FriendsPanel, TabFriends);
-    private void OnTabIm(object? sender, EventArgs e)
-    {
-        RefreshThreadList();
-        ShowTab(ImPanel, TabIm);
-    }
+    private void OnTabIm(object? sender, EventArgs e) { RefreshThreadList(); ShowTab(ImPanel, TabIm); }
+    private void OnTabGroups(object? sender, EventArgs e) { RefreshGroupList(); ShowTab(GroupsPanel, TabGroups); }
 
-    // ---------------- LSL blue menu ----------------
+    // ---------- blue menu ----------
     private void ShowScriptDialog(ScriptDialogEventArgs e)
     {
         _activeDialog = e;
         DialogTitleLabel.Text = e.ObjectName;
         DialogMessageLabel.Text = e.Message;
-
         DialogButtonsLayout.Children.Clear();
+
         for (int i = 0; i < e.ButtonLabels.Count; i++)
         {
             int index = i;
@@ -310,8 +487,7 @@ public partial class MainPage : ContentPage
                 FontSize = 13,
                 Margin = new Thickness(3),
                 MinimumWidthRequest = 96,
-                BackgroundColor = Color.FromArgb("#3A6EA5"),
-                TextColor = Colors.White
+                CornerRadius = 10
             };
             btn.Clicked += (_, _) =>
             {
@@ -332,9 +508,9 @@ public partial class MainPage : ContentPage
         DialogOverlay.IsVisible = false;
     }
 
-    // ---------------- view models ----------------
+    // ---------- view models ----------
     private sealed record NearbyPrimVm(string Name, string DistanceText);
     private sealed record PersonVm(UUID Id, string Name, string DistanceText);
-    private sealed record FriendVm(UUID Id, string Name, Brush StatusColor);
+    private sealed record FriendVm(UUID Id, string Name, Brush StatusColor, string StatusText);
     private sealed record ThreadVm(ImThread Thread, string Name, string Badge);
 }

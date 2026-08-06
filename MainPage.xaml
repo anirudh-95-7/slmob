@@ -3,177 +3,281 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:r="clr-namespace:SLMobileViewer.Rendering"
              x:Class="SLMobileViewer.MainPage"
-             Title="SL Mobile Viewer"
-             BackgroundColor="{StaticResource Bg}">
+             Shell.NavBarIsVisible="False"
+             Title="SL Mobile Viewer">
 
     <Grid>
 
-        <!-- ============ LOGIN PANEL ============ -->
+        <!-- LOGIN -->
         <ScrollView x:Name="LoginPanel">
-            <VerticalStackLayout Padding="24" Spacing="14" VerticalOptions="Center">
-                <Label Text="SL Mobile Viewer" FontSize="28" FontAttributes="Bold" HorizontalOptions="Center" />
-                <Label Text="Second Life / OpenSim" FontSize="13" TextColor="#7A8A99" HorizontalOptions="Center" />
+            <VerticalStackLayout Padding="26" Spacing="12" VerticalOptions="Center">
+                <Label Text="SL Mobile" FontSize="34" FontAttributes="Bold" HorizontalOptions="Center" />
+                <Label Text="Second Life / OpenSim viewer" Style="{StaticResource Muted}" HorizontalOptions="Center" />
+                <BoxView HeightRequest="10" Color="Transparent" />
 
-                <Entry x:Name="FirstNameEntry" Placeholder="First Name" />
-                <Entry x:Name="LastNameEntry" Placeholder="Last Name (Resident if none)" />
-                <Entry x:Name="PasswordEntry" Placeholder="Password" IsPassword="True"
-                       IsTextPredictionEnabled="False" IsSpellCheckEnabled="False" />
-                <HorizontalStackLayout Spacing="4">
-                    <CheckBox x:Name="ShowPwCheck" CheckedChanged="OnShowPwChanged" />
-                    <Label Text="Show password" FontSize="13" VerticalOptions="Center" />
-                </HorizontalStackLayout>
-                <Entry x:Name="StartLocationEntry" Placeholder="Start: last, home, or region name" Text="last" />
+                <Border Style="{StaticResource Card}">
+                    <VerticalStackLayout Spacing="10">
+                        <Entry x:Name="FirstNameEntry" Placeholder="Username / First name" />
+                        <Entry x:Name="LastNameEntry" Placeholder="Last name (blank = Resident)" />
+                        <Entry x:Name="PasswordEntry" Placeholder="Password" IsPassword="True"
+                               IsTextPredictionEnabled="False" IsSpellCheckEnabled="False" />
+                        <HorizontalStackLayout Spacing="2">
+                            <CheckBox x:Name="ShowPwCheck" CheckedChanged="OnShowPwChanged" />
+                            <Label Text="Show password" VerticalOptions="Center" Style="{StaticResource Muted}" />
+                        </HorizontalStackLayout>
+                        <Entry x:Name="StartLocationEntry" Placeholder="last, home or region name" Text="last" />
+                    </VerticalStackLayout>
+                </Border>
 
-                <Button x:Name="ConnectButton" Text="Connect" HeightRequest="48" Clicked="OnConnectClicked" />
-                <ActivityIndicator x:Name="LoginSpinner" IsRunning="False" Color="{StaticResource Accent}" />
-                <Label x:Name="LoginStatusLabel" TextColor="#E0A040" HorizontalOptions="Center" />
+                <Button x:Name="ConnectButton" Text="Connect" HeightRequest="50" Clicked="OnConnectClicked" />
+                <ActivityIndicator x:Name="LoginSpinner" IsRunning="False" />
+                <Label x:Name="LoginStatusLabel" TextColor="#E0A040" HorizontalOptions="Center"
+                       HorizontalTextAlignment="Center" />
+                <Button x:Name="ThemeButtonLogin" Text="Switch theme" Style="{StaticResource Ghost}"
+                        HorizontalOptions="Center" Clicked="OnToggleTheme" />
             </VerticalStackLayout>
         </ScrollView>
 
-        <!-- ============ MAIN VIEWPORT ============ -->
-        <Grid x:Name="ViewportPanel" IsVisible="False" RowDefinitions="Auto,*,Auto" Padding="6" RowSpacing="4">
+        <!-- MAIN -->
+        <Grid x:Name="ViewportPanel" IsVisible="False" RowDefinitions="Auto,*,Auto" Padding="8,6" RowSpacing="6">
 
-            <Label Grid.Row="0" x:Name="StatusLabel" Text="Connected" FontSize="11" TextColor="#68C060" />
+            <!-- header -->
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                <VerticalStackLayout>
+                    <Label x:Name="SelfNameLabel" Text="" Style="{StaticResource Title}" />
+                    <Label x:Name="StatusLabel" Text="Connected" Style="{StaticResource Muted}" />
+                </VerticalStackLayout>
+                <Button Grid.Column="1" x:Name="ThemeButton" Text="Theme" Style="{StaticResource Ghost}"
+                        Clicked="OnToggleTheme" />
+                <Button Grid.Column="2" Text="Log out" Style="{StaticResource Danger}" Clicked="OnLogoutClicked" />
+            </Grid>
 
-            <!-- WORLD (3D + minimap) -->
-            <Grid Grid.Row="1" x:Name="WorldPanel" RowDefinitions="*,Auto" RowSpacing="4">
+            <!-- WORLD -->
+            <Grid Grid.Row="1" x:Name="WorldPanel" RowDefinitions="*,Auto" RowSpacing="6">
                 <Grid>
-                    <r:WorldView x:Name="World3D" />
-                    <Grid.GestureRecognizers>
-                        <PanGestureRecognizer PanUpdated="OnWorldPan" />
-                        <PinchGestureRecognizer PinchUpdated="OnWorldPinch" />
-                    </Grid.GestureRecognizers>
+                    <Border Style="{StaticResource Card}" Padding="0" IsClippedToBounds="True">
+                        <r:WorldView x:Name="World3D" />
+                    </Border>
+
+                    <!-- selected object card -->
+                    <Border x:Name="SelectionCard" Style="{StaticResource Card}" IsVisible="False"
+                            VerticalOptions="End" Margin="6">
+                        <VerticalStackLayout Spacing="6">
+                            <Label x:Name="SelName" Style="{StaticResource Title}" LineBreakMode="TailTruncation" />
+                            <Label x:Name="SelDesc" Style="{StaticResource Muted}" MaxLines="3"
+                                   LineBreakMode="TailTruncation" />
+                            <Label x:Name="SelMeta" Style="{StaticResource Muted}" />
+                            <HorizontalStackLayout Spacing="6">
+                                <Button Text="Touch" Clicked="OnTouchObject" />
+                                <Button Text="Sit" Style="{StaticResource Ghost}" Clicked="OnSitObject" />
+                                <Button Text="Stand" Style="{StaticResource Ghost}" Clicked="OnStandUp" />
+                                <Button Text="Close" Style="{StaticResource Ghost}" Clicked="OnCloseSelection" />
+                            </HorizontalStackLayout>
+                        </VerticalStackLayout>
+                    </Border>
                 </Grid>
+
                 <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="6">
-                    <Label Text="Range" FontSize="12" VerticalOptions="Center" />
-                    <Picker Grid.Column="1" x:Name="RangePicker" WidthRequest="90" FontSize="12"
-                            TextColor="{StaticResource Fg}" SelectedIndexChanged="OnRangeChanged" />
-                    <Label Grid.Column="2" x:Name="AudioLabel" FontSize="11" TextColor="#7A8A99"
+                    <Label Text="Range" VerticalOptions="Center" Style="{StaticResource Muted}" />
+                    <Picker Grid.Column="1" x:Name="RangePicker" WidthRequest="96" FontSize="12"
+                            SelectedIndexChanged="OnRangeChanged" />
+                    <Label Grid.Column="2" x:Name="AudioLabel" Style="{StaticResource Muted}"
                            VerticalOptions="Center" LineBreakMode="TailTruncation" />
-                    <Button Grid.Column="3" x:Name="AudioButton" Text="Audio ▶" FontSize="12"
-                            Padding="10,4" Clicked="OnAudioToggle" />
+                    <Button Grid.Column="3" x:Name="AudioButton" Text="Audio" Style="{StaticResource Ghost}"
+                            Clicked="OnAudioToggle" />
                 </Grid>
             </Grid>
 
             <!-- CHAT -->
             <Grid Grid.Row="1" x:Name="ChatPanel" IsVisible="False" RowDefinitions="*,Auto" RowSpacing="6">
-                <Border BackgroundColor="{StaticResource Panel}" StrokeThickness="0" Padding="6">
+                <Border Style="{StaticResource Card}">
                     <CollectionView x:Name="ChatList" ItemsUpdatingScrollMode="KeepLastItemInView">
                         <CollectionView.ItemTemplate>
                             <DataTemplate x:DataType="x:String">
-                                <Label Text="{Binding .}" FontSize="13" Padding="2,1" />
+                                <Label Text="{Binding .}" FontSize="13" Padding="2,3" />
                             </DataTemplate>
                         </CollectionView.ItemTemplate>
                     </CollectionView>
                 </Border>
                 <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="6">
                     <Entry x:Name="ChatEntry" Placeholder="Say something..." Completed="OnSendClicked" />
-                    <Button Grid.Column="1" Text="Send" WidthRequest="76" Clicked="OnSendClicked" />
+                    <Button Grid.Column="1" Text="Send" Clicked="OnSendClicked" />
                 </Grid>
             </Grid>
 
-            <!-- PEOPLE (nearby avatars + objects) -->
-            <Grid Grid.Row="1" x:Name="PeoplePanel" IsVisible="False" RowDefinitions="Auto,*,Auto,*">
-                <Label Text="Nearby People — tap to IM" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
-                <CollectionView Grid.Row="1" x:Name="PeopleList" SelectionMode="Single"
-                                SelectionChanged="OnPersonSelected">
-                    <CollectionView.ItemTemplate>
-                        <DataTemplate>
-                            <Grid ColumnDefinitions="*,Auto" Padding="4,6">
-                                <Label Text="{Binding Name}" FontSize="14" />
-                                <Label Grid.Column="1" Text="{Binding DistanceText}" FontSize="12" TextColor="#7A8A99" />
-                            </Grid>
-                        </DataTemplate>
-                    </CollectionView.ItemTemplate>
-                </CollectionView>
-                <Label Grid.Row="2" Text="Nearby Objects" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
-                <CollectionView Grid.Row="3" x:Name="NearbyList">
-                    <CollectionView.ItemTemplate>
-                        <DataTemplate>
-                            <Grid ColumnDefinitions="*,Auto" Padding="2,2">
-                                <Label Text="{Binding Name}" FontSize="12" LineBreakMode="TailTruncation" />
-                                <Label Grid.Column="1" Text="{Binding DistanceText}" FontSize="12" TextColor="#7A8A99" />
-                            </Grid>
-                        </DataTemplate>
-                    </CollectionView.ItemTemplate>
-                </CollectionView>
-            </Grid>
-
-            <!-- FRIENDS -->
-            <Grid Grid.Row="1" x:Name="FriendsPanel" IsVisible="False" RowDefinitions="Auto,*">
-                <Label x:Name="FriendsHeader" Text="Friends" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
-                <CollectionView Grid.Row="1" x:Name="FriendsList" SelectionMode="Single"
-                                SelectionChanged="OnFriendSelected">
-                    <CollectionView.ItemTemplate>
-                        <DataTemplate>
-                            <Grid ColumnDefinitions="Auto,*" Padding="4,7" ColumnSpacing="8">
-                                <Ellipse WidthRequest="10" HeightRequest="10" VerticalOptions="Center"
-                                         Fill="{Binding StatusColor}" />
-                                <Label Grid.Column="1" Text="{Binding Name}" FontSize="14" />
-                            </Grid>
-                        </DataTemplate>
-                    </CollectionView.ItemTemplate>
-                </CollectionView>
-            </Grid>
-
-            <!-- IM -->
-            <Grid Grid.Row="1" x:Name="ImPanel" IsVisible="False">
-                <Grid x:Name="ImListView" RowDefinitions="Auto,*">
-                    <Label Text="Conversations" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
-                    <CollectionView Grid.Row="1" x:Name="ImThreadList" SelectionMode="Single"
-                                    SelectionChanged="OnThreadSelected">
+            <!-- PEOPLE -->
+            <Grid Grid.Row="1" x:Name="PeoplePanel" IsVisible="False" RowDefinitions="Auto,*,Auto,*" RowSpacing="2">
+                <Label Text="NEARBY PEOPLE — tap for profile" Style="{StaticResource SectionHeader}" />
+                <Border Grid.Row="1" Style="{StaticResource Card}" Padding="4">
+                    <CollectionView x:Name="PeopleList" SelectionMode="Single" SelectionChanged="OnPersonSelected">
                         <CollectionView.ItemTemplate>
                             <DataTemplate>
-                                <Grid ColumnDefinitions="*,Auto" Padding="4,8">
-                                    <Label Text="{Binding Name}" FontSize="14" />
-                                    <Label Grid.Column="1" Text="{Binding Badge}" FontSize="12" TextColor="#E86AC8" />
+                                <Grid ColumnDefinitions="*,Auto" Padding="6,9">
+                                    <Label Text="{Binding Name}" />
+                                    <Label Grid.Column="1" Text="{Binding DistanceText}" Style="{StaticResource Muted}" />
                                 </Grid>
                             </DataTemplate>
                         </CollectionView.ItemTemplate>
                     </CollectionView>
+                </Border>
+                <Label Grid.Row="2" Text="NEARBY OBJECTS" Style="{StaticResource SectionHeader}" />
+                <Border Grid.Row="3" Style="{StaticResource Card}" Padding="4">
+                    <CollectionView x:Name="NearbyList">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="*,Auto" Padding="6,5">
+                                    <Label Text="{Binding Name}" FontSize="13" LineBreakMode="TailTruncation" />
+                                    <Label Grid.Column="1" Text="{Binding DistanceText}" Style="{StaticResource Muted}" />
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </Border>
+            </Grid>
+
+            <!-- FRIENDS -->
+            <Grid Grid.Row="1" x:Name="FriendsPanel" IsVisible="False" RowDefinitions="Auto,*" RowSpacing="2">
+                <Label x:Name="FriendsHeader" Text="FRIENDS" Style="{StaticResource SectionHeader}" />
+                <Border Grid.Row="1" Style="{StaticResource Card}" Padding="4">
+                    <CollectionView x:Name="FriendsList" SelectionMode="Single" SelectionChanged="OnFriendSelected">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="Auto,*,Auto" Padding="6,10" ColumnSpacing="10">
+                                    <Ellipse WidthRequest="10" HeightRequest="10" VerticalOptions="Center"
+                                             Fill="{Binding StatusColor}" />
+                                    <Label Grid.Column="1" Text="{Binding Name}" />
+                                    <Label Grid.Column="2" Text="{Binding StatusText}" Style="{StaticResource Muted}" />
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </Border>
+            </Grid>
+
+            <!-- IM -->
+            <Grid Grid.Row="1" x:Name="ImPanel" IsVisible="False">
+                <Grid x:Name="ImListView" RowDefinitions="Auto,*" RowSpacing="2">
+                    <Label Text="CONVERSATIONS" Style="{StaticResource SectionHeader}" />
+                    <Border Grid.Row="1" Style="{StaticResource Card}" Padding="4">
+                        <CollectionView x:Name="ImThreadList" SelectionMode="Single" SelectionChanged="OnThreadSelected">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,Auto" Padding="6,11">
+                                        <Label Text="{Binding Name}" />
+                                        <Label Grid.Column="1" Text="{Binding Badge}" TextColor="#E060C0" FontSize="12" />
+                                    </Grid>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                    </Border>
                 </Grid>
 
                 <Grid x:Name="ImThreadView" IsVisible="False" RowDefinitions="Auto,*,Auto" RowSpacing="6">
                     <Grid ColumnDefinitions="Auto,*">
-                        <Button Text="←" WidthRequest="46" Padding="0" Clicked="OnImBack" />
-                        <Label Grid.Column="1" x:Name="ImTitle" FontSize="15" FontAttributes="Bold"
-                               VerticalOptions="Center" Margin="8,0,0,0" />
+                        <Button Text="Back" Style="{StaticResource Ghost}" Clicked="OnImBack" />
+                        <Label Grid.Column="1" x:Name="ImTitle" Style="{StaticResource Title}"
+                               VerticalOptions="Center" Margin="10,0,0,0" LineBreakMode="TailTruncation" />
                     </Grid>
-                    <Border Grid.Row="1" BackgroundColor="{StaticResource Panel}" StrokeThickness="0" Padding="6">
+                    <Border Grid.Row="1" Style="{StaticResource Card}">
                         <CollectionView x:Name="ImMessages" ItemsUpdatingScrollMode="KeepLastItemInView">
                             <CollectionView.ItemTemplate>
                                 <DataTemplate x:DataType="x:String">
-                                    <Label Text="{Binding .}" FontSize="13" Padding="2,2" />
+                                    <Label Text="{Binding .}" FontSize="13" Padding="2,3" />
                                 </DataTemplate>
                             </CollectionView.ItemTemplate>
                         </CollectionView>
                     </Border>
                     <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="6">
                         <Entry x:Name="ImEntry" Placeholder="Message..." Completed="OnImSend" />
-                        <Button Grid.Column="1" Text="Send" WidthRequest="76" Clicked="OnImSend" />
+                        <Button Grid.Column="1" Text="Send" Clicked="OnImSend" />
                     </Grid>
                 </Grid>
             </Grid>
 
-            <!-- TAB BAR -->
-            <Grid Grid.Row="2" ColumnDefinitions="*,*,*,*,*" ColumnSpacing="4">
-                <Button x:Name="TabWorld" Text="World" FontSize="12" Padding="0,6" Clicked="OnTabWorld" />
-                <Button Grid.Column="1" x:Name="TabChat" Text="Chat" FontSize="12" Padding="0,6" Clicked="OnTabChat" />
-                <Button Grid.Column="2" x:Name="TabPeople" Text="People" FontSize="12" Padding="0,6" Clicked="OnTabPeople" />
-                <Button Grid.Column="3" x:Name="TabFriends" Text="Friends" FontSize="12" Padding="0,6" Clicked="OnTabFriends" />
-                <Button Grid.Column="4" x:Name="TabIm" Text="IM" FontSize="12" Padding="0,6" Clicked="OnTabIm" />
+            <!-- GROUPS -->
+            <Grid Grid.Row="1" x:Name="GroupsPanel" IsVisible="False">
+                <Grid x:Name="GroupListView" RowDefinitions="Auto,*" RowSpacing="2">
+                    <Label Text="GROUP CHATS" Style="{StaticResource SectionHeader}" />
+                    <Border Grid.Row="1" Style="{StaticResource Card}" Padding="4">
+                        <CollectionView x:Name="GroupThreadList" SelectionMode="Single"
+                                        SelectionChanged="OnGroupSelected">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="*,Auto" Padding="6,11">
+                                        <Label Text="{Binding Name}" />
+                                        <Label Grid.Column="1" Text="{Binding Badge}" TextColor="#E060C0" FontSize="12" />
+                                    </Grid>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                    </Border>
+                </Grid>
+
+                <Grid x:Name="GroupThreadView" IsVisible="False" RowDefinitions="Auto,*,Auto" RowSpacing="6">
+                    <Grid ColumnDefinitions="Auto,*">
+                        <Button Text="Back" Style="{StaticResource Ghost}" Clicked="OnGroupBack" />
+                        <Label Grid.Column="1" x:Name="GroupTitle" Style="{StaticResource Title}"
+                               VerticalOptions="Center" Margin="10,0,0,0" LineBreakMode="TailTruncation" />
+                    </Grid>
+                    <Border Grid.Row="1" Style="{StaticResource Card}">
+                        <CollectionView x:Name="GroupMessages" ItemsUpdatingScrollMode="KeepLastItemInView">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <Label Text="{Binding .}" FontSize="13" Padding="2,3" />
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                    </Border>
+                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                        <Entry x:Name="GroupEntry" Placeholder="Message group..." Completed="OnGroupSend" />
+                        <Button Grid.Column="1" Text="Send" Clicked="OnGroupSend" />
+                    </Grid>
+                </Grid>
+            </Grid>
+
+            <!-- PROFILE -->
+            <ScrollView Grid.Row="1" x:Name="ProfilePanel" IsVisible="False">
+                <VerticalStackLayout Spacing="10">
+                    <Button Text="Back" Style="{StaticResource Ghost}" HorizontalOptions="Start"
+                            Clicked="OnProfileBack" />
+                    <Border Style="{StaticResource Card}">
+                        <VerticalStackLayout Spacing="8">
+                            <Label x:Name="ProfName" FontSize="20" FontAttributes="Bold" />
+                            <Label x:Name="ProfBorn" Style="{StaticResource Muted}" />
+                            <Label x:Name="ProfPartner" Style="{StaticResource Muted}" />
+                            <BoxView HeightRequest="1" Color="#33808080" />
+                            <Label Text="ABOUT" Style="{StaticResource SectionHeader}" />
+                            <Label x:Name="ProfAbout" />
+                            <Label Text="FIRST LIFE" Style="{StaticResource SectionHeader}" />
+                            <Label x:Name="ProfRl" />
+                            <HorizontalStackLayout Spacing="8">
+                                <Button Text="Send IM" Clicked="OnProfileIm" />
+                                <Button Text="Add friend" Style="{StaticResource Ghost}" Clicked="OnProfileFriend" />
+                            </HorizontalStackLayout>
+                        </VerticalStackLayout>
+                    </Border>
+                </VerticalStackLayout>
+            </ScrollView>
+
+            <!-- TABS -->
+            <Grid Grid.Row="2" ColumnDefinitions="*,*,*,*,*,*" ColumnSpacing="3">
+                <Button x:Name="TabWorld" Text="World" FontSize="11" Padding="0,8" Clicked="OnTabWorld" />
+                <Button Grid.Column="1" x:Name="TabChat" Text="Chat" FontSize="11" Padding="0,8" Clicked="OnTabChat" />
+                <Button Grid.Column="2" x:Name="TabPeople" Text="People" FontSize="11" Padding="0,8" Clicked="OnTabPeople" />
+                <Button Grid.Column="3" x:Name="TabFriends" Text="Friends" FontSize="11" Padding="0,8" Clicked="OnTabFriends" />
+                <Button Grid.Column="4" x:Name="TabIm" Text="IM" FontSize="11" Padding="0,8" Clicked="OnTabIm" />
+                <Button Grid.Column="5" x:Name="TabGroups" Text="Groups" FontSize="11" Padding="0,8" Clicked="OnTabGroups" />
             </Grid>
         </Grid>
 
-        <!-- ============ LSL BLUE MENU ============ -->
+        <!-- LSL BLUE MENU -->
         <Grid x:Name="DialogOverlay" IsVisible="False" BackgroundColor="#99000000">
-            <Border VerticalOptions="End" BackgroundColor="#274B6D" StrokeThickness="0" Padding="16"
-                    StrokeShape="RoundRectangle 16,16,0,0">
+            <Border VerticalOptions="End" Style="{StaticResource Card}" Margin="8">
                 <VerticalStackLayout Spacing="10">
-                    <Label x:Name="DialogTitleLabel" FontAttributes="Bold" FontSize="15" TextColor="White" />
-                    <Label x:Name="DialogMessageLabel" FontSize="13" TextColor="#D8E4F0" />
+                    <Label x:Name="DialogTitleLabel" Style="{StaticResource Title}" />
+                    <Label x:Name="DialogMessageLabel" FontSize="13" />
                     <FlexLayout x:Name="DialogButtonsLayout" Wrap="Wrap" JustifyContent="Start" />
-                    <Button Text="Ignore" BackgroundColor="#44576B" Clicked="OnDialogIgnoreClicked" />
+                    <Button Text="Ignore" Style="{StaticResource Ghost}" Clicked="OnDialogIgnoreClicked" />
                 </VerticalStackLayout>
             </Border>
         </Grid>

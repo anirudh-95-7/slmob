@@ -149,6 +149,31 @@ public sealed class SecondLifeService
     public void ReplyToScriptDialog(int channel, int buttonIndex, string buttonLabel, UUID objectID)
         => Client.Self.ReplyToScriptDialog(channel, buttonIndex, buttonLabel, objectID);
 
+    /// <summary>Touch (click) an in-world object.</summary>
+    public void Touch(uint localId)
+    {
+        try { Client.Self.Touch(localId); } catch { }
+    }
+
+    /// <summary>Sit on an in-world object.</summary>
+    public void SitOn(UUID objectId)
+    {
+        try
+        {
+            Client.Self.RequestSit(objectId, Vector3.Zero);
+            Client.Self.Sit();
+        }
+        catch { }
+    }
+
+    public void StandUp()
+    {
+        try { Client.Self.Stand(); } catch { }
+    }
+
+    public string SelfName => $"{Client.Self.FirstName} {Client.Self.LastName}".Trim();
+    public UUID SelfId => Client.Self.AgentID;
+
     public void Logout()
     {
         CullEngine.Stop();

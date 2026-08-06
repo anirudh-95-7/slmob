@@ -4,23 +4,76 @@
              x:Class="SLMobileViewer.App">
     <Application.Resources>
         <ResourceDictionary>
-            <Color x:Key="Bg">#1B2838</Color>
-            <Color x:Key="Panel">#22303F</Color>
-            <Color x:Key="Accent">#2F89D8</Color>
-            <Color x:Key="Fg">#E8EEF4</Color>
-            <Style TargetType="Entry">
-                <Setter Property="TextColor" Value="{StaticResource Fg}" />
-                <Setter Property="BackgroundColor" Value="{StaticResource Panel}" />
-                <Setter Property="PlaceholderColor" Value="#7A8A99" />
+
+            <Style TargetType="ContentPage">
+                <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#F2F5F9, Dark=#121A24}" />
             </Style>
-            <Style TargetType="Button">
-                <Setter Property="BackgroundColor" Value="{StaticResource Accent}" />
-                <Setter Property="TextColor" Value="White" />
-                <Setter Property="CornerRadius" Value="8" />
-            </Style>
+
             <Style TargetType="Label">
-                <Setter Property="TextColor" Value="{StaticResource Fg}" />
+                <Setter Property="TextColor" Value="{AppThemeBinding Light=#14202C, Dark=#E8EEF4}" />
+                <Setter Property="FontSize" Value="14" />
             </Style>
+
+            <Style x:Key="Muted" TargetType="Label">
+                <Setter Property="TextColor" Value="{AppThemeBinding Light=#5C7186, Dark=#8AA0B4}" />
+                <Setter Property="FontSize" Value="12" />
+            </Style>
+
+            <Style x:Key="SectionHeader" TargetType="Label">
+                <Setter Property="TextColor" Value="{AppThemeBinding Light=#1F6FBF, Dark=#7FB8E8}" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontAttributes" Value="Bold" />
+                <Setter Property="Margin" Value="4,6,4,4" />
+            </Style>
+
+            <Style x:Key="Title" TargetType="Label">
+                <Setter Property="FontSize" Value="17" />
+                <Setter Property="FontAttributes" Value="Bold" />
+            </Style>
+
+            <Style TargetType="Entry">
+                <Setter Property="TextColor" Value="{AppThemeBinding Light=#14202C, Dark=#E8EEF4}" />
+                <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#FFFFFF, Dark=#1C2836}" />
+                <Setter Property="PlaceholderColor" Value="{AppThemeBinding Light=#8AA0B4, Dark=#6B8098}" />
+            </Style>
+
+            <Style TargetType="Picker">
+                <Setter Property="TextColor" Value="{AppThemeBinding Light=#14202C, Dark=#E8EEF4}" />
+                <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#FFFFFF, Dark=#1C2836}" />
+            </Style>
+
+            <Style TargetType="Button">
+                <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#1F6FBF, Dark=#2F89D8}" />
+                <Setter Property="TextColor" Value="White" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="Padding" Value="14,8" />
+            </Style>
+
+            <Style x:Key="Ghost" TargetType="Button">
+                <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#DCE6F0, Dark=#263546}" />
+                <Setter Property="TextColor" Value="{AppThemeBinding Light=#1F6FBF, Dark=#B9D4EC}" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="Padding" Value="12,7" />
+            </Style>
+
+            <Style x:Key="Danger" TargetType="Button">
+                <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#C8452F, Dark=#9E3B2C}" />
+                <Setter Property="TextColor" Value="White" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="Padding" Value="12,7" />
+            </Style>
+
+            <Style x:Key="Card" TargetType="Border">
+                <Setter Property="BackgroundColor" Value="{AppThemeBinding Light=#FFFFFF, Dark=#1C2836}" />
+                <Setter Property="Stroke" Value="{AppThemeBinding Light=#DDE5EE, Dark=#28384A}" />
+                <Setter Property="StrokeThickness" Value="1" />
+                <Setter Property="Padding" Value="10" />
+                <Setter Property="StrokeShape" Value="RoundRectangle 14" />
+            </Style>
+
         </ResourceDictionary>
     </Application.Resources>
 </Application>

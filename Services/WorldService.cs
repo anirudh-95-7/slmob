@@ -11,6 +11,7 @@ public sealed record FriendEntry(UUID Id, string Name, bool IsOnline);
 public sealed class ImThread
 {
     public UUID AgentId { get; init; }
+    public bool IsGroup { get; init; }
     public string Name { get; set; } = "";
     public ObservableCollection<string> Messages { get; } = new();
     public int Unread { get; set; }
@@ -23,6 +24,8 @@ public sealed class WorldService
     private readonly ConcurrentDictionary<UUID, string> _nameCache = new();
     private readonly ConcurrentDictionary<UUID, byte> _nameRequested = new();
     private readonly ConcurrentDictionary<UUID, ImThread> _threads = new();
+    private readonly ConcurrentDictionary<UUID, ImThread> _groups = new();
+    private readonly ConcurrentDictionary<UUID, byte> _joinedGroupChats = new();
     private Timer? _timer;
 
     public string? ParcelMusicUrl { get; private set; }
@@ -32,8 +35,11 @@ public sealed class WorldService
     public event Action<IReadOnlyList<FriendEntry>>? FriendsUpdated;
     public event Action<ImThread>? ImUpdated;
     public event Action<string>? Notice;
+    public event Action<ImThread>? GroupUpdated;
+    public event Action<UUID, Avatar.AvatarProperties>? ProfileReceived;
 
     public IReadOnlyCollection<ImThread> Threads => _threads.Values.ToList();
+    public IReadOnlyCollection<ImThread> GroupThreads => _groups.Values.ToList();
 
     public WorldService(GridClient client)
     {
@@ -58,25 +64,102 @@ public sealed class WorldService
             ParcelName = e.Parcel.Name ?? "";
         };
 
-        // Incoming IMs -> per-agent threads
+        // Profiles
+        _client.Avatars.AvatarPropertiesReply += (s, e) =>
+            MainThread.BeginInvokeOnMainThread(() => ProfileReceived?.Invoke(e.AvatarID, e.Properties));
+
+        // Incoming IMs -> person threads or group threads
         _client.Self.IM += (s, e) =>
         {
             var im = e.IM;
-            if (im.Dialog != InstantMessageDialog.MessageFromAgent) return;
             if (im.FromAgentID == _client.Self.AgentID) return;
+
+            bool isGroupChat = im.GroupIM ||
+                               im.Dialog == InstantMessageDialog.SessionSend ||
+                               im.Dialog == InstantMessageDialog.SessionGroupStart;
+
+            if (isGroupChat)
+            {
+                if (string.IsNullOrEmpty(im.Message)) return;
+                var g = GetOrCreateGroupThread(im.IMSessionID, GroupNameFor(im.IMSessionID));
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    g.Messages.Add($"{im.FromAgentName}: {im.Message}");
+                    while (g.Messages.Count > 400) g.Messages.RemoveAt(0);
+                    g.Unread++;
+                    GroupUpdated?.Invoke(g);
+                });
+                return;
+            }
+
+            if (im.Dialog == InstantMessageDialog.GroupNotice)
+            {
+                var g = GetOrCreateGroupThread(im.IMSessionID, GroupNameFor(im.IMSessionID));
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    g.Messages.Add($"[notice] {im.FromAgentName}: {im.Message}");
+                    g.Unread++;
+                    GroupUpdated?.Invoke(g);
+                });
+                return;
+            }
+
+            if (im.Dialog != InstantMessageDialog.MessageFromAgent) return;
 
             var thread = GetOrCreateThread(im.FromAgentID, im.FromAgentName);
             MainThread.BeginInvokeOnMainThread(() =>
             {
                 thread.Messages.Add($"{im.FromAgentName}: {im.Message}");
+                while (thread.Messages.Count > 400) thread.Messages.RemoveAt(0);
                 thread.Unread++;
                 ImUpdated?.Invoke(thread);
             });
         };
+
+        // Group roster -> names for the Groups tab
+        _client.Groups.CurrentGroups += (s, e) =>
+        {
+            foreach (var kv in e.Groups)
+            {
+                _groupNames[kv.Key] = kv.Value.Name;
+                var t = GetOrCreateGroupThread(kv.Key, kv.Value.Name);
+                t.Name = kv.Value.Name;
+            }
+            MainThread.BeginInvokeOnMainThread(() => GroupUpdated?.Invoke(
+                _groups.Values.FirstOrDefault() ?? new ImThread { IsGroup = true }));
+        };
+    }
+
+    private readonly ConcurrentDictionary<UUID, string> _groupNames = new();
+
+    public string GroupNameFor(UUID id)
+        => _groupNames.TryGetValue(id, out var n) && !string.IsNullOrEmpty(n) ? n : "Group chat";
+
+    public ImThread GetOrCreateGroupThread(UUID sessionId, string name)
+        => _groups.GetOrAdd(sessionId, id => new ImThread { AgentId = id, Name = name, IsGroup = true });
+
+    public void RequestProfile(UUID id)
+    {
+        try { _client.Avatars.RequestAvatarProperties(id); } catch { }
+    }
+
+    public void SendGroupIm(ImThread thread, string message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return;
+        try
+        {
+            if (_joinedGroupChats.TryAdd(thread.AgentId, 0))
+                _client.Self.RequestJoinGroupChat(thread.AgentId);
+            _client.Self.InstantMessageGroup(thread.AgentId, message);
+            thread.Messages.Add($"You: {message}");
+            GroupUpdated?.Invoke(thread);
+        }
+        catch (Exception ex) { Notice?.Invoke($"Group IM failed: {ex.Message}"); }
     }
 
     public void Start()
     {
+        try { _client.Groups.RequestCurrentGroups(); } catch { }
         _timer = new Timer(_ => Tick(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(3));
     }
 
@@ -85,6 +168,9 @@ public sealed class WorldService
         _timer?.Dispose();
         _timer = null;
         _threads.Clear();
+        _groups.Clear();
+        _groupNames.Clear();
+        _joinedGroupChats.Clear();
         _nameCache.Clear();
         _nameRequested.Clear();
     }
