@@ -1,0 +1,3 @@
+publish_exit=0
+restore_exit=0
+workload_exit=0
