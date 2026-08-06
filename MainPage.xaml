@@ -35,7 +35,7 @@
 
             <Label Grid.Row="0" x:Name="StatusLabel" Text="Connected" FontSize="11" TextColor="#68C060" />
 
-            <!-- ---- WORLD (3D + minimap) ---- -->
+            <!-- WORLD (3D + minimap) -->
             <Grid Grid.Row="1" x:Name="WorldPanel" RowDefinitions="*,Auto" RowSpacing="4">
                 <Grid>
                     <r:WorldView x:Name="World3D" />
@@ -55,7 +55,7 @@
                 </Grid>
             </Grid>
 
-            <!-- ---- CHAT ---- -->
+            <!-- CHAT -->
             <Grid Grid.Row="1" x:Name="ChatPanel" IsVisible="False" RowDefinitions="*,Auto" RowSpacing="6">
                 <Border BackgroundColor="{StaticResource Panel}" StrokeThickness="0" Padding="6">
                     <CollectionView x:Name="ChatList" ItemsUpdatingScrollMode="KeepLastItemInView">
@@ -72,7 +72,7 @@
                 </Grid>
             </Grid>
 
-            <!-- ---- PEOPLE (nearby avatars + objects) ---- -->
+            <!-- PEOPLE (nearby avatars + objects) -->
             <Grid Grid.Row="1" x:Name="PeoplePanel" IsVisible="False" RowDefinitions="Auto,*,Auto,*">
                 <Label Text="Nearby People — tap to IM" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
                 <CollectionView Grid.Row="1" x:Name="PeopleList" SelectionMode="Single"
@@ -99,7 +99,7 @@
                 </CollectionView>
             </Grid>
 
-            <!-- ---- FRIENDS ---- -->
+            <!-- FRIENDS -->
             <Grid Grid.Row="1" x:Name="FriendsPanel" IsVisible="False" RowDefinitions="Auto,*">
                 <Label x:Name="FriendsHeader" Text="Friends" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
                 <CollectionView Grid.Row="1" x:Name="FriendsList" SelectionMode="Single"
@@ -116,7 +116,7 @@
                 </CollectionView>
             </Grid>
 
-            <!-- ---- IM ---- -->
+            <!-- IM -->
             <Grid Grid.Row="1" x:Name="ImPanel" IsVisible="False">
                 <Grid x:Name="ImListView" RowDefinitions="Auto,*">
                     <Label Text="Conversations" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
@@ -155,7 +155,7 @@
                 </Grid>
             </Grid>
 
-            <!-- ---- TAB BAR ---- -->
+            <!-- TAB BAR -->
             <Grid Grid.Row="2" ColumnDefinitions="*,*,*,*,*" ColumnSpacing="4">
                 <Button x:Name="TabWorld" Text="World" FontSize="12" Padding="0,6" Clicked="OnTabWorld" />
                 <Button Grid.Column="1" x:Name="TabChat" Text="Chat" FontSize="12" Padding="0,6" Clicked="OnTabChat" />

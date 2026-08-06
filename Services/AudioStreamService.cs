@@ -27,7 +27,7 @@ public sealed class AudioStreamService
                 .SetContentType(AudioContentType.Music)!
                 .SetUsage(AudioUsageKind.Media)!
                 .Build()!);
-            await _player.SetDataSourceAsync(url).ConfigureAwait(false);
+            _player.SetDataSource(url);
 
             var tcs = new TaskCompletionSource<bool>();
             _player.Prepared += (s, e) => tcs.TrySetResult(true);
