@@ -43,7 +43,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p /tmp/out
-          cp build.log /tmp/out/ 2>/dev/null || true
+          echo "run ${{ github.run_number }} status=${{ job.status }}" > /tmp/out/status.txt
+          cp build.log /tmp/out/ 2>/dev/null || echo "NO build.log - job died before/inside build step" > /tmp/out/build.log
           apk=$(ls bin/Release/net8.0-android/publish/*-Signed.apk 2>/dev/null | head -1)
           if [ -n "$apk" ]; then
             cp "$apk" /tmp/apk.apk
