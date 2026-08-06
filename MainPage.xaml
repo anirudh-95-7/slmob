@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:r="clr-namespace:SLMobileViewer.Rendering"
              x:Class="SLMobileViewer.MainPage"
              Title="SL Mobile Viewer"
              BackgroundColor="{StaticResource Bg}">
 
     <Grid>
 
-        <!-- ============ 1. LOGIN PANEL ============ -->
+        <!-- ============ LOGIN PANEL ============ -->
         <ScrollView x:Name="LoginPanel">
             <VerticalStackLayout Padding="24" Spacing="14" VerticalOptions="Center">
                 <Label Text="SL Mobile Viewer" FontSize="28" FontAttributes="Bold" HorizontalOptions="Center" />
@@ -15,7 +16,8 @@
 
                 <Entry x:Name="FirstNameEntry" Placeholder="First Name" />
                 <Entry x:Name="LastNameEntry" Placeholder="Last Name (Resident if none)" />
-                <Entry x:Name="PasswordEntry" Placeholder="Password" IsPassword="True" IsTextPredictionEnabled="False" IsSpellCheckEnabled="False" />
+                <Entry x:Name="PasswordEntry" Placeholder="Password" IsPassword="True"
+                       IsTextPredictionEnabled="False" IsSpellCheckEnabled="False" />
                 <HorizontalStackLayout Spacing="4">
                     <CheckBox x:Name="ShowPwCheck" CheckedChanged="OnShowPwChanged" />
                     <Label Text="Show password" FontSize="13" VerticalOptions="Center" />
@@ -28,49 +30,142 @@
             </VerticalStackLayout>
         </ScrollView>
 
-        <!-- ============ 2. MAIN VIEWPORT PANEL ============ -->
-        <Grid x:Name="ViewportPanel" IsVisible="False" RowDefinitions="Auto,2*,Auto,1.2*,Auto" Padding="10" RowSpacing="8">
+        <!-- ============ MAIN VIEWPORT ============ -->
+        <Grid x:Name="ViewportPanel" IsVisible="False" RowDefinitions="Auto,*,Auto" Padding="6" RowSpacing="4">
 
-            <Label Grid.Row="0" x:Name="StatusLabel" Text="Connected" FontSize="12" TextColor="#68C060" />
+            <Label Grid.Row="0" x:Name="StatusLabel" Text="Connected" FontSize="11" TextColor="#68C060" />
 
-            <!-- Chat log -->
-            <Border Grid.Row="1" BackgroundColor="{StaticResource Panel}" StrokeThickness="0" Padding="6">
-                <CollectionView x:Name="ChatList" ItemsUpdatingScrollMode="KeepLastItemInView">
+            <!-- ---- WORLD (3D + minimap) ---- -->
+            <Grid Grid.Row="1" x:Name="WorldPanel" RowDefinitions="*,Auto" RowSpacing="4">
+                <Grid>
+                    <r:WorldView x:Name="World3D" />
+                    <Grid.GestureRecognizers>
+                        <PanGestureRecognizer PanUpdated="OnWorldPan" />
+                        <PinchGestureRecognizer PinchUpdated="OnWorldPinch" />
+                    </Grid.GestureRecognizers>
+                </Grid>
+                <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="6">
+                    <Label Text="Range" FontSize="12" VerticalOptions="Center" />
+                    <Picker Grid.Column="1" x:Name="RangePicker" WidthRequest="90" FontSize="12"
+                            TextColor="{StaticResource Fg}" SelectedIndexChanged="OnRangeChanged" />
+                    <Label Grid.Column="2" x:Name="AudioLabel" FontSize="11" TextColor="#7A8A99"
+                           VerticalOptions="Center" LineBreakMode="TailTruncation" />
+                    <Button Grid.Column="3" x:Name="AudioButton" Text="Audio ▶" FontSize="12"
+                            Padding="10,4" Clicked="OnAudioToggle" />
+                </Grid>
+            </Grid>
+
+            <!-- ---- CHAT ---- -->
+            <Grid Grid.Row="1" x:Name="ChatPanel" IsVisible="False" RowDefinitions="*,Auto" RowSpacing="6">
+                <Border BackgroundColor="{StaticResource Panel}" StrokeThickness="0" Padding="6">
+                    <CollectionView x:Name="ChatList" ItemsUpdatingScrollMode="KeepLastItemInView">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <Label Text="{Binding .}" FontSize="13" Padding="2,1" />
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </Border>
+                <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                    <Entry x:Name="ChatEntry" Placeholder="Say something..." Completed="OnSendClicked" />
+                    <Button Grid.Column="1" Text="Send" WidthRequest="76" Clicked="OnSendClicked" />
+                </Grid>
+            </Grid>
+
+            <!-- ---- PEOPLE (nearby avatars + objects) ---- -->
+            <Grid Grid.Row="1" x:Name="PeoplePanel" IsVisible="False" RowDefinitions="Auto,*,Auto,*">
+                <Label Text="Nearby People — tap to IM" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
+                <CollectionView Grid.Row="1" x:Name="PeopleList" SelectionMode="Single"
+                                SelectionChanged="OnPersonSelected">
                     <CollectionView.ItemTemplate>
-                        <DataTemplate x:DataType="x:String">
-                            <Label Text="{Binding .}" FontSize="13" Padding="2,1" />
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="*,Auto" Padding="4,6">
+                                <Label Text="{Binding Name}" FontSize="14" />
+                                <Label Grid.Column="1" Text="{Binding DistanceText}" FontSize="12" TextColor="#7A8A99" />
+                            </Grid>
                         </DataTemplate>
                     </CollectionView.ItemTemplate>
                 </CollectionView>
-            </Border>
-
-            <!-- Chat entry -->
-            <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                <Entry x:Name="ChatEntry" Placeholder="Say something..." Completed="OnSendClicked" />
-                <Button Grid.Column="1" Text="Send" WidthRequest="80" Clicked="OnSendClicked" />
+                <Label Grid.Row="2" Text="Nearby Objects" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
+                <CollectionView Grid.Row="3" x:Name="NearbyList">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="*,Auto" Padding="2,2">
+                                <Label Text="{Binding Name}" FontSize="12" LineBreakMode="TailTruncation" />
+                                <Label Grid.Column="1" Text="{Binding DistanceText}" FontSize="12" TextColor="#7A8A99" />
+                            </Grid>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
             </Grid>
 
-            <!-- 20 m nearby prims -->
-            <Border Grid.Row="3" BackgroundColor="{StaticResource Panel}" StrokeThickness="0" Padding="6">
-                <Grid RowDefinitions="Auto,*">
-                    <Label Text="Nearby Objects (20 m bubble)" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
-                    <CollectionView Grid.Row="1" x:Name="NearbyList">
+            <!-- ---- FRIENDS ---- -->
+            <Grid Grid.Row="1" x:Name="FriendsPanel" IsVisible="False" RowDefinitions="Auto,*">
+                <Label x:Name="FriendsHeader" Text="Friends" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
+                <CollectionView Grid.Row="1" x:Name="FriendsList" SelectionMode="Single"
+                                SelectionChanged="OnFriendSelected">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="Auto,*" Padding="4,7" ColumnSpacing="8">
+                                <Ellipse WidthRequest="10" HeightRequest="10" VerticalOptions="Center"
+                                         Fill="{Binding StatusColor}" />
+                                <Label Grid.Column="1" Text="{Binding Name}" FontSize="14" />
+                            </Grid>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+            </Grid>
+
+            <!-- ---- IM ---- -->
+            <Grid Grid.Row="1" x:Name="ImPanel" IsVisible="False">
+                <Grid x:Name="ImListView" RowDefinitions="Auto,*">
+                    <Label Text="Conversations" FontSize="12" FontAttributes="Bold" TextColor="#7FB8E8" />
+                    <CollectionView Grid.Row="1" x:Name="ImThreadList" SelectionMode="Single"
+                                    SelectionChanged="OnThreadSelected">
                         <CollectionView.ItemTemplate>
                             <DataTemplate>
-                                <Grid ColumnDefinitions="*,Auto" Padding="2,1">
-                                    <Label Text="{Binding Name}" FontSize="12" LineBreakMode="TailTruncation" />
-                                    <Label Grid.Column="1" Text="{Binding DistanceText}" FontSize="12" TextColor="#7A8A99" />
+                                <Grid ColumnDefinitions="*,Auto" Padding="4,8">
+                                    <Label Text="{Binding Name}" FontSize="14" />
+                                    <Label Grid.Column="1" Text="{Binding Badge}" FontSize="12" TextColor="#E86AC8" />
                                 </Grid>
                             </DataTemplate>
                         </CollectionView.ItemTemplate>
                     </CollectionView>
                 </Grid>
-            </Border>
 
-            <Button Grid.Row="4" Text="Log Out" BackgroundColor="#8A3A3A" Clicked="OnLogoutClicked" />
+                <Grid x:Name="ImThreadView" IsVisible="False" RowDefinitions="Auto,*,Auto" RowSpacing="6">
+                    <Grid ColumnDefinitions="Auto,*">
+                        <Button Text="←" WidthRequest="46" Padding="0" Clicked="OnImBack" />
+                        <Label Grid.Column="1" x:Name="ImTitle" FontSize="15" FontAttributes="Bold"
+                               VerticalOptions="Center" Margin="8,0,0,0" />
+                    </Grid>
+                    <Border Grid.Row="1" BackgroundColor="{StaticResource Panel}" StrokeThickness="0" Padding="6">
+                        <CollectionView x:Name="ImMessages" ItemsUpdatingScrollMode="KeepLastItemInView">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <Label Text="{Binding .}" FontSize="13" Padding="2,2" />
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                    </Border>
+                    <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                        <Entry x:Name="ImEntry" Placeholder="Message..." Completed="OnImSend" />
+                        <Button Grid.Column="1" Text="Send" WidthRequest="76" Clicked="OnImSend" />
+                    </Grid>
+                </Grid>
+            </Grid>
+
+            <!-- ---- TAB BAR ---- -->
+            <Grid Grid.Row="2" ColumnDefinitions="*,*,*,*,*" ColumnSpacing="4">
+                <Button x:Name="TabWorld" Text="World" FontSize="12" Padding="0,6" Clicked="OnTabWorld" />
+                <Button Grid.Column="1" x:Name="TabChat" Text="Chat" FontSize="12" Padding="0,6" Clicked="OnTabChat" />
+                <Button Grid.Column="2" x:Name="TabPeople" Text="People" FontSize="12" Padding="0,6" Clicked="OnTabPeople" />
+                <Button Grid.Column="3" x:Name="TabFriends" Text="Friends" FontSize="12" Padding="0,6" Clicked="OnTabFriends" />
+                <Button Grid.Column="4" x:Name="TabIm" Text="IM" FontSize="12" Padding="0,6" Clicked="OnTabIm" />
+            </Grid>
         </Grid>
 
-        <!-- ============ 3. LSL BLUE MENU (bottom-sheet modal) ============ -->
+        <!-- ============ LSL BLUE MENU ============ -->
         <Grid x:Name="DialogOverlay" IsVisible="False" BackgroundColor="#99000000">
             <Border VerticalOptions="End" BackgroundColor="#274B6D" StrokeThickness="0" Padding="16"
                     StrokeShape="RoundRectangle 16,16,0,0">

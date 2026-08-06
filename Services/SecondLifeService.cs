@@ -13,6 +13,8 @@ public sealed class SecondLifeService
 
     public GridClient Client { get; }
     public SpatialCullEngine CullEngine { get; }
+    public WorldService World { get; }
+    public AudioStreamService Audio { get; } = new();
 
     public bool IsConnected => Client.Network.Connected;
 
@@ -46,6 +48,7 @@ public sealed class SecondLifeService
         Client.Settings.World.StoreLandPatches = false;
 
         CullEngine = new SpatialCullEngine(Client);
+        World = new WorldService(Client);
 
         // ---- network callbacks -> UI thread ----
         Client.Self.ChatFromSimulator += (s, e) =>
@@ -115,6 +118,7 @@ public sealed class SecondLifeService
             {
                 await SetAdultMaturityAsync().ConfigureAwait(false);
                 CullEngine.Start();
+                World.Start();
             }
             if (ok) return (true, Client.Network.LoginMessage);
 
@@ -148,6 +152,8 @@ public sealed class SecondLifeService
     public void Logout()
     {
         CullEngine.Stop();
+        World.Stop();
+        Audio.Stop();
         if (IsConnected) Client.Network.Logout();
     }
 }
