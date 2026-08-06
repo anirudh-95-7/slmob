@@ -55,7 +55,7 @@
             <!-- WORLD -->
             <Grid Grid.Row="1" x:Name="WorldPanel" RowDefinitions="*,Auto" RowSpacing="6">
                 <Grid>
-                    <Border Style="{StaticResource Card}" Padding="0" IsClippedToBounds="True">
+                    <Border Style="{StaticResource Card}" Padding="0">
                         <r:WorldView x:Name="World3D" />
                     </Border>
 
