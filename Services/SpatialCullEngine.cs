@@ -67,6 +67,83 @@ public sealed class SpatialCullEngine
     /// <summary>Thread-safe geometry snapshot for the 3D renderer.</summary>
     public List<Primitive> SnapshotPrims() => _nearby.Values.ToList();
 
+    /// <summary>
+    /// Child prims in a linkset (and avatar attachments) store position/rotation
+    /// RELATIVE to their parent. Resolve to world space, or fail if the parent
+    /// hasn't arrived yet.
+    /// </summary>
+    public bool TryWorldTransform(Primitive p, out Vector3 pos, out Quaternion rot)
+    {
+        pos = p.Position;
+        rot = p.Rotation;
+        if (p.ParentID == 0) return true;
+
+        var sim = _client.Network.CurrentSim;
+        if (sim == null) return false;
+
+        Primitive? parent = null;
+        if (sim.ObjectsPrimitives.TryGetValue(p.ParentID, out var pp)) parent = pp;
+        else if (sim.ObjectsAvatars.TryGetValue(p.ParentID, out var av)) parent = av;
+        if (parent == null) return false;
+
+        var ppos = parent.Position;
+        var prot = parent.Rotation;
+
+        // one more level up, in case the parent is itself parented
+        if (parent.ParentID != 0)
+        {
+            if (sim.ObjectsPrimitives.TryGetValue(parent.ParentID, out var gp) ||
+                sim.ObjectsAvatars.TryGetValue(parent.ParentID, out var ga1))
+            {
+                var gp2 = sim.ObjectsPrimitives.TryGetValue(parent.ParentID, out var g1)
+                    ? g1
+                    : (sim.ObjectsAvatars.TryGetValue(parent.ParentID, out var g2) ? (Primitive)g2 : null);
+                if (gp2 != null)
+                {
+                    var r = RotateVec(ppos, gp2.Rotation);
+                    ppos = new Vector3(gp2.Position.X + r.X, gp2.Position.Y + r.Y, gp2.Position.Z + r.Z);
+                    prot = MulQuat(gp2.Rotation, prot);
+                }
+            }
+        }
+
+        var rel = RotateVec(p.Position, prot);
+        pos = new Vector3(ppos.X + rel.X, ppos.Y + rel.Y, ppos.Z + rel.Z);
+        rot = MulQuat(prot, p.Rotation);
+        return true;
+    }
+
+    /// <summary>World position, falling back to the raw value when unresolvable.</summary>
+    public Vector3 WorldPos(Primitive p)
+        => TryWorldTransform(p, out var pos, out _) ? pos : p.Position;
+
+    /// <summary>True when this prim is attached to an avatar (handled by AvatarBaker).</summary>
+    public bool IsAttachment(Primitive p)
+    {
+        if (p.ParentID == 0) return false;
+        var sim = _client.Network.CurrentSim;
+        return sim != null && sim.ObjectsAvatars.ContainsKey(p.ParentID);
+    }
+
+    internal static Vector3 RotateVec(Vector3 v, Quaternion q)
+    {
+        float x = q.X, y = q.Y, z = q.Z, w = q.W;
+        float ix = w * v.X + y * v.Z - z * v.Y;
+        float iy = w * v.Y + z * v.X - x * v.Z;
+        float iz = w * v.Z + x * v.Y - y * v.X;
+        float iw = -x * v.X - y * v.Y - z * v.Z;
+        return new Vector3(
+            ix * w + iw * -x + iy * -z - iz * -y,
+            iy * w + iw * -y + iz * -x - ix * -z,
+            iz * w + iw * -z + ix * -y - iy * -x);
+    }
+
+    internal static Quaternion MulQuat(Quaternion a, Quaternion b) => new(
+        a.W * b.X + a.X * b.W + a.Y * b.Z - a.Z * b.Y,
+        a.W * b.Y - a.X * b.Z + a.Y * b.W + a.Z * b.X,
+        a.W * b.Z + a.X * b.Y - a.Y * b.X + a.Z * b.W,
+        a.W * b.W - a.X * b.X - a.Y * b.Y - a.Z * b.Z);
+
     public Primitive? FindByLocalId(uint localId)
         => _nearby.TryGetValue(localId, out var p) ? p : null;
 
@@ -112,8 +189,10 @@ public sealed class SpatialCullEngine
     /// <summary>SPATIAL RULE: retain only prims within the cull radius.</summary>
     private void Consider(Primitive prim)
     {
+        if (IsAttachment(prim)) return;                 // avatars handle their own attachments
         Vector3 avatarPos = AvatarPosition();
-        float distance = Vector3.Distance(avatarPos, prim.Position);
+        if (!TryWorldTransform(prim, out var wpos, out _)) return;   // parent not here yet
+        float distance = Vector3.Distance(avatarPos, wpos);
 
         if (distance <= CullRadius)
             _nearby[prim.LocalID] = prim;
@@ -141,7 +220,9 @@ public sealed class SpatialCullEngine
         {
             foreach (var p in sim.ObjectsPrimitives.Values)
             {
-                if (Vector3.Distance(avatarPos, p.Position) <= CullRadius)
+                if (IsAttachment(p)) continue;
+                if (!TryWorldTransform(p, out var wp, out _)) continue;
+                if (Vector3.Distance(avatarPos, wp) <= CullRadius)
                     _nearby[p.LocalID] = p;
             }
         }
@@ -149,7 +230,7 @@ public sealed class SpatialCullEngine
         foreach (var kvp in _nearby)
         {
             var prim = kvp.Value;
-            float d = Vector3.Distance(avatarPos, prim.Position);
+            float d = Vector3.Distance(avatarPos, WorldPos(prim));
             if (d > CullRadius)
             {
                 _nearby.TryRemove(kvp.Key, out _);   // cull / purge from memory

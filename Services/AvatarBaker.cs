@@ -115,6 +115,7 @@ public sealed class AvatarBaker
             .ToList();
 
         var tris = new List<LocalTri>();
+        int meshOk = 0, meshFail = 0, attachTotal = attachments.Count;
 
         foreach (var prim in attachments)
         {
@@ -134,9 +135,10 @@ public sealed class AvatarBaker
                                                 .ConfigureAwait(false);
                 if (asset == null) continue;
                 if (!FacetedMesh.TryDecodeFromAsset(prim, asset, DetailLevel.Low, out mesh) || mesh == null)
-                    continue;
+                { meshFail++; continue; }
+                meshOk++;
             }
-            catch { continue; }
+            catch { meshFail++; continue; }
 
             bool rigged = mesh.SkinData != null;
             float[] bind = mesh.SkinData?.BindShapeMatrix ?? Identity();
@@ -166,6 +168,8 @@ public sealed class AvatarBaker
 
         baked.Tris = tris.ToArray();
         baked.Ready = true;
+        Report($"{baked.Name}: {meshOk}/{attachTotal} parts, {tris.Count} tris" +
+               (meshFail > 0 ? $" ({meshFail} failed)" : ""));
         return baked;
     }
 

@@ -47,6 +47,9 @@ public sealed class SceneBaker
 
     public event Action<BakeProgress>? Progress;
 
+    // diagnostics so failures are visible instead of silent
+    private int _meshOk, _meshFail, _boxFallback;
+
     private readonly TextureTintCache _tints;
 
     public SceneBaker(GridClient client, SpatialCullEngine cull, TextureTintCache tints)
@@ -106,9 +109,12 @@ public sealed class SceneBaker
     {
         var origin = Origin;
         var prims = _cull.SnapshotPrims()
-            .Where(p => Vector3.Distance(origin, p.Position) <= radius)
-            .OrderBy(p => Vector3.Distance(origin, p.Position))
+            .Where(p => !_cull.IsAttachment(p))
+            .Where(p => Vector3.Distance(origin, _cull.WorldPos(p)) <= radius)
+            .OrderBy(p => Vector3.Distance(origin, _cull.WorldPos(p)))
             .ToList();
+
+        _meshOk = _meshFail = _boxFallback = 0;
 
         int total = prims.Count, done = 0;
         var sw = Stopwatch.StartNew();
@@ -150,7 +156,9 @@ public sealed class SceneBaker
         Publish();
         int final;
         lock (_lock) final = _accum.Count;
-        Report(total, total, $"Scene ready — {total} objects, {final:N0} triangles", true);
+        Report(total, total,
+            $"Scene ready — {total} objects, {_meshOk} mesh loaded, {_meshFail} failed, " +
+            $"{_boxFallback} boxes, {final:N0} tris", true);
     }
 
     private void Publish()
@@ -180,6 +188,8 @@ public sealed class SceneBaker
 
         var lod = (size > 6f && dist < 20f) ? DetailLevel.Medium : DetailLevel.Low;
 
+        _cull.TryWorldTransform(prim, out var wpos, out var wrot);
+
         FacetedMesh? mesh = null;
         var sculpt = prim.Sculpt;
 
@@ -192,6 +202,7 @@ public sealed class SceneBaker
         else if (IsMeshAsset(sculpt))
         {
             mesh = await LoadMeshAssetAsync(prim, sculpt.SculptTexture, lod, token).ConfigureAwait(false);
+            if (mesh != null) _meshOk++; else _meshFail++;
         }
         else
         {
@@ -199,7 +210,10 @@ public sealed class SceneBaker
         }
 
         if (mesh == null || mesh.Faces.Count == 0)
-            return BoxFallback(prim);
+        {
+            _boxFallback++;
+            return BoxFallback(prim, wpos, wrot);
+        }
 
         foreach (var face in mesh.Faces)
         {
@@ -228,9 +242,9 @@ public sealed class SceneBaker
 
             for (int i = 0; i + 2 < idx.Count; i += 3)
             {
-                var a = ToWorld(verts[idx[i]].Position, prim);
-                var b = ToWorld(verts[idx[i + 1]].Position, prim);
-                var c = ToWorld(verts[idx[i + 2]].Position, prim);
+                var a = ToWorld(verts[idx[i]].Position, prim, wpos, wrot);
+                var b = ToWorld(verts[idx[i + 1]].Position, prim, wpos, wrot);
+                var c = ToWorld(verts[idx[i + 2]].Position, prim, wpos, wrot);
 
                 var n = Norm(Cross(Sub(b, a), Sub(c, a)));
                 result.Add(new BakedTri
@@ -305,14 +319,14 @@ public sealed class SceneBaker
         catch { return null; }
     }
 
-    private static Vector3 ToWorld(Vector3 local, Primitive prim)
+    private static Vector3 ToWorld(Vector3 local, Primitive prim, Vector3 wpos, Quaternion wrot)
     {
         var s = new Vector3(local.X * prim.Scale.X, local.Y * prim.Scale.Y, local.Z * prim.Scale.Z);
-        var r = Rotate(s, prim.Rotation);
-        return new Vector3(prim.Position.X + r.X, prim.Position.Y + r.Y, prim.Position.Z + r.Z);
+        var r = Rotate(s, wrot);
+        return new Vector3(wpos.X + r.X, wpos.Y + r.Y, wpos.Z + r.Z);
     }
 
-    private static List<BakedTri> BoxFallback(Primitive prim)
+    private static List<BakedTri> BoxFallback(Primitive prim, Vector3 wpos, Quaternion wrot)
     {
         var res = new List<BakedTri>();
         float hx = prim.Scale.X * .5f, hy = prim.Scale.Y * .5f, hz = prim.Scale.Z * .5f;
@@ -324,8 +338,8 @@ public sealed class SceneBaker
         var w = new Vector3[8];
         for (int i = 0; i < 8; i++)
         {
-            var r = Rotate(local[i], prim.Rotation);
-            w[i] = new Vector3(prim.Position.X + r.X, prim.Position.Y + r.Y, prim.Position.Z + r.Z);
+            var r = Rotate(local[i], wrot);
+            w[i] = new Vector3(wpos.X + r.X, wpos.Y + r.Y, wpos.Z + r.Z);
         }
         int[][] quads = { new[]{0,1,2,3}, new[]{4,5,6,7}, new[]{0,1,5,4}, new[]{1,2,6,5}, new[]{2,3,7,6}, new[]{3,0,4,7} };
         var col = PrimColor(prim);

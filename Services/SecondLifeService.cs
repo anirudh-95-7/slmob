@@ -59,6 +59,16 @@ public sealed class SecondLifeService
         Client.Settings.World.TrackAvatars = true;
         Client.Settings.World.StoreLandPatches = false;
 
+        // Default cache dir isn't writable in an Android app sandbox; without this
+        // every mesh/texture cache write throws and assets are effectively lost.
+        try
+        {
+            Client.Settings.AssetCache.Enabled = true;
+            Client.Settings.AssetCache.Dir = Path.Combine(FileSystem.CacheDirectory, "slcache");
+            Directory.CreateDirectory(Client.Settings.AssetCache.Dir);
+        }
+        catch { }
+
         CullEngine = new SpatialCullEngine(Client);
         World = new WorldService(Client);
         Tints = new TextureTintCache(Client);
