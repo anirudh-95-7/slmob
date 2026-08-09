@@ -2,6 +2,7 @@ using LibreMetaverse;
 using SkiaSharp;
 using SkiaSharp.Views.Maui;
 using SkiaSharp.Views.Maui.Controls;
+using LibreMetaverse.Animesh;
 using LibreMetaverse.Rendering;
 using SLMobileViewer.Services;
 

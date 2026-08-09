@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using LibreMetaverse;
+using LibreMetaverse.Animesh;
 using LibreMetaverse.Rendering;
 
 namespace SLMobileViewer.Services;
