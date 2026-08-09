@@ -58,7 +58,7 @@ public sealed class AnimationService
         if (Skeleton != null) return;
         try
         {
-            var dest = Path.Combine(FileSystem.AppDataDirectory, "avatar_skeleton.xml");
+            var dest = System.IO.Path.Combine(FileSystem.AppDataDirectory, "avatar_skeleton.xml");
             if (!File.Exists(dest))
             {
                 using var src = await FileSystem.OpenAppPackageFileAsync("avatar_skeleton.xml");
