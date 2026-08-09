@@ -44,6 +44,7 @@ public partial class MainPage : ContentPage
         World3D.World = _sl.World;
         World3D.Baker = _sl.Baker;
         World3D.AvatarMeshes = _sl.Avatars;
+        World3D.Animations = _sl.Animations;
         World3D.Picked += OnWorldPicked;
         _sl.Baker.Progress += OnBakeProgress;
         _sl.ConnectionStateChanged += OnConnectionStateChanged;
@@ -281,9 +282,12 @@ public partial class MainPage : ContentPage
         {
             if (!WorldPanel.IsVisible) return;
 
+            _sl.Animations.Advance(0.09f);
+
             var pos = _sl.CullEngine.AvatarPosition();
             bool moved = Vector3.Distance(pos, _lastDrawnPos) > 0.05f;
-            if (moved || World3D.FastMode || _sl.Baker.IsBaking || _forceRedraw)
+            bool animating = _people.Count > 0 && _sl.Animations.Ready;
+            if (moved || animating || World3D.FastMode || _sl.Baker.IsBaking || _forceRedraw)
             {
                 _lastDrawnPos = pos;
                 _forceRedraw = false;

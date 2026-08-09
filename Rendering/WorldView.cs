@@ -2,6 +2,7 @@ using LibreMetaverse;
 using SkiaSharp;
 using SkiaSharp.Views.Maui;
 using SkiaSharp.Views.Maui.Controls;
+using LibreMetaverse.Rendering;
 using SLMobileViewer.Services;
 
 namespace SLMobileViewer.Rendering;
@@ -18,6 +19,7 @@ public sealed class WorldView : SKCanvasView
     public WorldService? World { get; set; }
     public SceneBaker? Baker { get; set; }
     public AvatarBaker? AvatarMeshes { get; set; }
+    public AnimationService? Animations { get; set; }
 
     /// <summary>True while the user is dragging: draw a reduced subset for responsiveness.</summary>
     public bool FastMode { get; private set; }
@@ -253,7 +255,12 @@ public sealed class WorldView : SKCanvasView
             float dist = Vector3.Distance(eye, av.Position);
             var baked = AvatarMeshes?.Get(av.Id);
 
-            if (baked is { Ready: true, HasMesh: true })
+            var pose = Animations?.Ready == true ? Animations.PoseFor(av.Id) : null;
+
+            if (baked is { Ready: true } && pose != null && baked.CanSkin && Animations?.Skeleton != null)
+                avDraw.Add((dist, () => DrawPosedAvatar(canvas, baked, a, pose,
+                    Animations.Skeleton!, Project, Fog, light, eye)));
+            else if (baked is { Ready: true, HasMesh: true })
                 avDraw.Add((dist, () => DrawBakedAvatar(canvas, baked, a, Project, Fog, light, eye)));
             else
                 avDraw.Add((dist, () => DrawHumanoid(canvas, a.Position, a.Name, Project, Fog, light,
@@ -460,6 +467,92 @@ public sealed class WorldView : SKCanvasView
         using var hp = new SKPaint { Color = new SKColor(0xB3, 0xE5, 0xFC), IsAntialias = true };
         canvas.DrawCircle(ph.X, ph.Y - width * .5f, width * .55f, hp);
     }
+
+    /// <summary>
+    /// Draw an avatar deformed to its current animation pose. The heavy lifting
+    /// (joint matrices + vertex skinning) comes from LibreMetaverse's own
+    /// AnimeshSkinning; we only project and fill the result.
+    /// </summary>
+    private static void DrawPosedAvatar(SKCanvas canvas, BakedAvatar baked, NearbyAvatar av,
+        Dictionary<string, JointPose> pose, LindenSkeleton skeleton,
+        ProjectFn project, FogFn fog, Vector3 light, Vector3 eye)
+    {
+        var rot = av.Rotation;
+        var pos = av.Position;
+
+        var draws = new List<(float depth, SKPoint a, SKPoint b, SKPoint c, SKColor col)>();
+
+        foreach (var part in baked.Parts)
+        {
+            var skin = part.Mesh.SkinData;
+            if (!part.Rigged || skin == null) continue;
+
+            Matrix4[] mats;
+            try { mats = AnimeshSkinning.ComputeSkinningMatrices(pose, skeleton, skin); }
+            catch { continue; }
+
+            var bindShape = ToMatrix(skin.BindShapeMatrix);
+
+            for (int fi = 0; fi < part.Mesh.Faces.Count; fi++)
+            {
+                var face = part.Mesh.Faces[fi];
+                if (face.Vertices == null || face.Indices == null) continue;
+
+                int vcount = face.Vertices.Count;
+                var positions = new Vector3[vcount];
+                var normals = new Vector3[vcount];
+                try { AnimeshSkinning.DeformVertices(face, mats, bindShape, positions, normals); }
+                catch { continue; }
+
+                var col = fi < part.FaceColors.Length ? part.FaceColors[fi] : new SKColor(190, 185, 180);
+
+                for (int k = 0; k + 2 < face.Indices.Count; k += 3)
+                {
+                    int i0 = face.Indices[k], i1 = face.Indices[k + 1], i2 = face.Indices[k + 2];
+                    if (i0 >= vcount || i1 >= vcount || i2 >= vcount) continue;
+
+                    var wa = ToWorld(positions[i0], rot, pos);
+                    var wb = ToWorld(positions[i1], rot, pos);
+                    var wc = ToWorld(positions[i2], rot, pos);
+
+                    var n = Norm(Cross(Sub(wb, wa), Sub(wc, wa)));
+                    var toEye = new Vector3(eye.X - wa.X, eye.Y - wa.Y, eye.Z - wa.Z);
+                    if (Dot(n, toEye) <= 0) continue;
+
+                    if (!project(wa, out var pa, out var da) ||
+                        !project(wb, out var pb, out _) ||
+                        !project(wc, out var pc, out _)) continue;
+
+                    float lam = Math.Clamp(Dot(n, light), 0f, 1f) * 0.6f + 0.45f;
+                    draws.Add((da, pa, pb, pc, fog(Scale(col, lam), da)));
+                }
+            }
+        }
+
+        draws.Sort((x, y) => y.depth.CompareTo(x.depth));
+
+        using var paint = new SKPaint { IsAntialias = false, Style = SKPaintStyle.Fill };
+        using var path = new SKPath();
+        foreach (var d in draws)
+        {
+            path.Rewind();
+            path.MoveTo(d.a); path.LineTo(d.b); path.LineTo(d.c); path.Close();
+            paint.Color = d.col;
+            canvas.DrawPath(path, paint);
+        }
+    }
+
+    private static Matrix4 ToMatrix(float[] m)
+    {
+        if (m == null || m.Length < 16) return Matrix4.Identity;
+        return new Matrix4(
+            m[0], m[1], m[2], m[3],
+            m[4], m[5], m[6], m[7],
+            m[8], m[9], m[10], m[11],
+            m[12], m[13], m[14], m[15]);
+    }
+
+    private static Vector3 Sub(Vector3 a, Vector3 b) => new(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
 
     /// <summary>Draw an avatar's baked rigged-mesh body at its live position/rotation.</summary>
     private static void DrawBakedAvatar(SKCanvas canvas, BakedAvatar baked, NearbyAvatar av,

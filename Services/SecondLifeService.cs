@@ -17,6 +17,7 @@ public sealed class SecondLifeService
     public SceneBaker Baker { get; }
     public TextureTintCache Tints { get; }
     public AvatarBaker Avatars { get; }
+    public AnimationService Animations { get; }
     public AudioStreamService Audio { get; } = new();
 
     public bool IsConnected => Client.Network.Connected;
@@ -74,6 +75,9 @@ public sealed class SecondLifeService
         Tints = new TextureTintCache(Client);
         Baker = new SceneBaker(Client, CullEngine, Tints);
         Avatars = new AvatarBaker(Client, Tints);
+        Animations = new AnimationService(Client);
+        World.AttachCull(CullEngine);
+        _ = Animations.LoadSkeletonAsync();
 
         // ---- network callbacks -> UI thread ----
         Client.Self.ChatFromSimulator += (s, e) =>
@@ -433,6 +437,7 @@ public sealed class SecondLifeService
         CullEngine.Stop();
         Baker.Clear();
         Avatars.Clear();
+        Animations.Clear();
         Tints.Clear();
         World.Stop();
         Audio.Stop();

@@ -13,13 +13,28 @@ public struct LocalTri
     public SKColor Color;
 }
 
+/// <summary>One rigged mesh part, retained so it can be re-skinned to a pose.</summary>
+public sealed class AvatarPart
+{
+    public FacetedMesh Mesh = null!;
+    public bool Rigged;
+    public SKColor[] FaceColors = Array.Empty<SKColor>();
+}
+
 public sealed class BakedAvatar
 {
     public UUID Id { get; init; }
     public string Name { get; set; } = "";
     public volatile bool Ready;
+
+    /// <summary>Flattened rest pose — used when no animation is available.</summary>
     public LocalTri[] Tris = Array.Empty<LocalTri>();
+
+    /// <summary>Retained mesh parts with skin weights, for posed rendering.</summary>
+    public List<AvatarPart> Parts = new();
+
     public bool HasMesh => Tris.Length > 0;
+    public bool CanSkin => Parts.Any(p => p.Rigged && p.Mesh.SkinData != null);
 }
 
 /// <summary>
@@ -143,12 +158,16 @@ public sealed class AvatarBaker
             bool rigged = mesh.SkinData != null;
             float[] bind = mesh.SkinData?.BindShapeMatrix ?? Identity();
 
+            var part = new AvatarPart { Mesh = mesh, Rigged = rigged };
+            var faceCols = new List<SKColor>();
+
             foreach (var face in mesh.Faces)
             {
                 if (face.Vertices == null || face.Indices == null) continue;
                 if (tris.Count >= MaxTrisPerAvatar) break;
 
                 var col = await FaceTintAsync(face, token).ConfigureAwait(false);
+                faceCols.Add(col);
 
                 for (int k = 0; k + 2 < face.Indices.Count && tris.Count < MaxTrisPerAvatar; k += 3)
                 {
@@ -164,6 +183,9 @@ public sealed class AvatarBaker
                     });
                 }
             }
+
+            part.FaceColors = faceCols.ToArray();
+            baked.Parts.Add(part);
         }
 
         baked.Tris = tris.ToArray();

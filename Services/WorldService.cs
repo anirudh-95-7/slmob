@@ -29,6 +29,9 @@ public sealed class ImThread
 public sealed class WorldService
 {
     private readonly GridClient _client;
+    private SpatialCullEngine? _cull;
+    public void AttachCull(SpatialCullEngine cull) => _cull = cull;
+
     private readonly ConcurrentDictionary<UUID, string> _nameCache = new();
     private readonly ConcurrentDictionary<UUID, byte> _nameRequested = new();
     private readonly ConcurrentDictionary<UUID, ImThread> _threads = new();
@@ -240,11 +243,23 @@ public sealed class WorldService
         foreach (var av in sim.ObjectsAvatars.Values)
         {
             if (av.ID == _client.Self.AgentID) continue;
-            float d = Vector3.Distance(selfPos, av.Position);
+
+            // A seated avatar is parented to the furniture, so its Position is
+            // relative to that seat, not world space.
+            var pos = av.Position;
+            var rot = av.Rotation;
+            if (av.ParentID != 0 && _cull != null &&
+                _cull.TryWorldTransform(av, out var wp, out var wr))
+            {
+                pos = wp;
+                rot = wr;
+            }
+
+            float d = Vector3.Distance(selfPos, pos);
             if (d > radius) continue;
 
             string name = !string.IsNullOrEmpty(av.Name) ? av.Name : NameFor(av.ID);
-            list.Add(new NearbyAvatar(av.ID, name, d, av.Position, av.Rotation));
+            list.Add(new NearbyAvatar(av.ID, name, d, pos, rot));
         }
         list.Sort((a, b) => a.Distance.CompareTo(b.Distance));
         return list;
