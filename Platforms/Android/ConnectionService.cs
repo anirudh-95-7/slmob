@@ -1,6 +1,5 @@
 using Android.App;
 using Android.Content;
-using Android.Net.Wifi;
 using Android.OS;
 using AndroidX.Core.App;
 
@@ -17,7 +16,6 @@ public class ConnectionService : Service
     private const int NotificationId = 4711;
 
     private PowerManager.WakeLock? _wakeLock;
-    private WifiManager.WifiLock? _wifiLock;
 
     public override IBinder? OnBind(Intent? intent) => null;
 
@@ -64,10 +62,6 @@ public class ConnectionService : Service
             var pm = (PowerManager?)GetSystemService(PowerService);
             _wakeLock = pm?.NewWakeLock(WakeLockFlags.Partial, "slmobile:connection");
             _wakeLock?.Acquire();
-
-            var wm = (WifiManager?)ApplicationContext?.GetSystemService(WifiService);
-            _wifiLock = wm?.CreateWifiLock(WifiMode.FullHighPerf, "slmobile:wifi");
-            _wifiLock?.Acquire();
         }
         catch { }
     }
@@ -75,9 +69,7 @@ public class ConnectionService : Service
     private void ReleaseLocks()
     {
         try { if (_wakeLock?.IsHeld == true) _wakeLock.Release(); } catch { }
-        try { if (_wifiLock?.IsHeld == true) _wifiLock.Release(); } catch { }
         _wakeLock = null;
-        _wifiLock = null;
     }
 
     public static void Start(Context ctx)
