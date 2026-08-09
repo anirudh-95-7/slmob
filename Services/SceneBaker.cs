@@ -47,10 +47,13 @@ public sealed class SceneBaker
 
     public event Action<BakeProgress>? Progress;
 
-    public SceneBaker(GridClient client, SpatialCullEngine cull)
+    private readonly TextureTintCache _tints;
+
+    public SceneBaker(GridClient client, SpatialCullEngine cull, TextureTintCache tints)
     {
         _client = client;
         _cull = cull;
+        _tints = tints;
     }
 
     public void Clear()
@@ -203,6 +206,23 @@ public sealed class SceneBaker
             if (face.Vertices == null || face.Indices == null) continue;
 
             SKColor col = FaceColor(face, prim);
+            try
+            {
+                var texId = face.TextureFace?.TextureID ?? UUID.Zero;
+                if (texId != UUID.Zero)
+                {
+                    var tint = await _tints.GetTintAsync(texId, token).ConfigureAwait(false);
+                    if (tint != null)
+                    {
+                        var t = tint.Value;
+                        col = new SKColor(
+                            (byte)(t.Red * col.Red / 255),
+                            (byte)(t.Green * col.Green / 255),
+                            (byte)(t.Blue * col.Blue / 255));
+                    }
+                }
+            }
+            catch { }
             var verts = face.Vertices;
             var idx = face.Indices;
 

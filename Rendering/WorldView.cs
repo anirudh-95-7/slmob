@@ -17,6 +17,7 @@ public sealed class WorldView : SKCanvasView
     public SpatialCullEngine? Cull { get; set; }
     public WorldService? World { get; set; }
     public SceneBaker? Baker { get; set; }
+    public AvatarBaker? AvatarMeshes { get; set; }
 
     /// <summary>True while the user is dragging: draw a reduced subset for responsiveness.</summary>
     public bool FastMode { get; private set; }
@@ -241,16 +242,31 @@ public sealed class WorldView : SKCanvasView
             lock (_hits) _hits.Add((cpt, rpx, cdepth, false, prim.LocalID, prim.ID, Cull.NameFor(prim)));
         }
 
-        // ---- avatars (live, drawn as simple humanoids) ----
+        // ---- avatars: real rigged-mesh bodies where we have them ----
         var avDraw = new List<(float d, Action a)>();
         foreach (var av in avatars)
         {
             if (Project(av.Position, out var apt, out var adepth))
                 lock (_hits) _hits.Add((apt, MathF.Max(200f / MathF.Max(adepth, 0.5f), 26f), adepth, true, 0, av.Id, av.Name));
+
             var a = av;
             float dist = Vector3.Distance(eye, av.Position);
-            avDraw.Add((dist, () => DrawHumanoid(canvas, a.Position, a.Name, Project, Fog, light,
-                new SKColor(0xD8, 0x6A, 0xC0))));
+            var baked = AvatarMeshes?.Get(av.Id);
+
+            if (baked is { Ready: true, HasMesh: true })
+                avDraw.Add((dist, () => DrawBakedAvatar(canvas, baked, a, Project, Fog, light, eye)));
+            else
+                avDraw.Add((dist, () => DrawHumanoid(canvas, a.Position, a.Name, Project, Fog, light,
+                    new SKColor(0xD8, 0x6A, 0xC0))));
+
+            // name tag always on top of the body
+            var nameAv = a;
+            avDraw.Add((dist - 0.01f, () =>
+            {
+                if (Project(new Vector3(nameAv.Position.X, nameAv.Position.Y, nameAv.Position.Z + 1.15f),
+                        out var tp, out _))
+                    DrawTag(canvas, nameAv.Name, tp.X, tp.Y, 24, new SKColor(0xFF, 0xD5, 0xF0));
+            }));
         }
         avDraw.Sort((x, y) => y.d.CompareTo(x.d));
         foreach (var d in avDraw) d.a();
@@ -443,6 +459,64 @@ public sealed class WorldView : SKCanvasView
         canvas.DrawLine(pf, ph, body);
         using var hp = new SKPaint { Color = new SKColor(0xB3, 0xE5, 0xFC), IsAntialias = true };
         canvas.DrawCircle(ph.X, ph.Y - width * .5f, width * .55f, hp);
+    }
+
+    /// <summary>Draw an avatar's baked rigged-mesh body at its live position/rotation.</summary>
+    private static void DrawBakedAvatar(SKCanvas canvas, BakedAvatar baked, NearbyAvatar av,
+        ProjectFn project, FogFn fog, Vector3 light, Vector3 eye)
+    {
+        var tris = baked.Tris;
+        if (tris.Length == 0) return;
+
+        var rot = av.Rotation;
+        var pos = av.Position;
+
+        var order = new (float depth, int idx)[tris.Length];
+        int visible = 0;
+
+        for (int i = 0; i < tris.Length; i++)
+        {
+            var cx = (tris[i].A.X + tris[i].B.X + tris[i].C.X) / 3f;
+            var cy = (tris[i].A.Y + tris[i].B.Y + tris[i].C.Y) / 3f;
+            var cz = (tris[i].A.Z + tris[i].B.Z + tris[i].C.Z) / 3f;
+            var wc = ToWorld(new Vector3(cx, cy, cz), rot, pos);
+            float d = Vector3.Distance(eye, wc);
+            order[visible++] = (d, i);
+        }
+        Array.Sort(order, 0, visible, Comparer<(float depth, int idx)>.Create(
+            (x, y) => y.depth.CompareTo(x.depth)));
+
+        using var paint = new SKPaint { IsAntialias = false, Style = SKPaintStyle.Fill };
+        using var path = new SKPath();
+
+        for (int k = 0; k < visible; k++)
+        {
+            ref readonly var t = ref tris[order[k].idx];
+            var a = ToWorld(t.A, rot, pos);
+            var b = ToWorld(t.B, rot, pos);
+            var c = ToWorld(t.C, rot, pos);
+
+            var n = Rotate(t.Normal, rot);
+            var toEye = new Vector3(eye.X - a.X, eye.Y - a.Y, eye.Z - a.Z);
+            if (Dot(n, toEye) <= 0) continue;
+
+            if (!project(a, out var pa, out var da) ||
+                !project(b, out var pb, out _) ||
+                !project(c, out var pc, out _)) continue;
+
+            path.Rewind();
+            path.MoveTo(pa); path.LineTo(pb); path.LineTo(pc); path.Close();
+
+            float lam = Math.Clamp(Dot(n, light), 0f, 1f) * 0.6f + 0.45f;
+            paint.Color = fog(Scale(t.Color, lam), da);
+            canvas.DrawPath(path, paint);
+        }
+    }
+
+    private static Vector3 ToWorld(Vector3 local, Quaternion rot, Vector3 pos)
+    {
+        var r = Rotate(local, rot);
+        return new Vector3(pos.X + r.X, pos.Y + r.Y, pos.Z + r.Z);
     }
 
     /// <summary>Simple articulated figure: head, torso, arms, legs.</summary>

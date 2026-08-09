@@ -4,7 +4,7 @@ using LibreMetaverse;
 
 namespace SLMobileViewer.Services;
 
-public sealed record NearbyAvatar(UUID Id, string Name, float Distance, Vector3 Position);
+public sealed record NearbyAvatar(UUID Id, string Name, float Distance, Vector3 Position, Quaternion Rotation);
 public sealed record FriendEntry(UUID Id, string Name, bool IsOnline);
 
 /// <summary>One IM conversation with a single agent.</summary>
@@ -210,7 +210,7 @@ public sealed class WorldService
             if (d > radius) continue;
 
             string name = !string.IsNullOrEmpty(av.Name) ? av.Name : NameFor(av.ID);
-            list.Add(new NearbyAvatar(av.ID, name, d, av.Position));
+            list.Add(new NearbyAvatar(av.ID, name, d, av.Position, av.Rotation));
         }
         list.Sort((a, b) => a.Distance.CompareTo(b.Distance));
         return list;

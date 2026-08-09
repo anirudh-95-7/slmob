@@ -23,6 +23,7 @@ public partial class MainPage : ContentPage
 
     private Primitive? _selectedPrim;
     private Vector3 _lastDrawnPos = Vector3.Zero;
+    private DateTime _lastAvatarBake = DateTime.MinValue;
     private bool _forceRedraw = true;
     private UUID _profileId = UUID.Zero;
     private string _profileName = "";
@@ -41,9 +42,11 @@ public partial class MainPage : ContentPage
         World3D.Cull = _sl.CullEngine;
         World3D.World = _sl.World;
         World3D.Baker = _sl.Baker;
+        World3D.AvatarMeshes = _sl.Avatars;
         World3D.Picked += OnWorldPicked;
         _sl.Baker.Progress += OnBakeProgress;
         _sl.ConnectionStateChanged += OnConnectionStateChanged;
+        _sl.Avatars.Progress += msg => { BakeLabel.Text = msg; _forceRedraw = true; };
 
         RangePicker.ItemsSource = new List<string> { "20 m", "40 m", "64 m", "96 m" };
         RangePicker.SelectedIndex = 0;
@@ -208,6 +211,7 @@ public partial class MainPage : ContentPage
         BakeBar.Progress = 0;
         BakeLabel.Text = "Collecting objects…";
         _sl.Baker.Rebuild(r);
+        BakeAvatarsIfDue(true);
         _forceRedraw = true;
     }
 
@@ -380,6 +384,15 @@ public partial class MainPage : ContentPage
     {
         _people.Clear();
         foreach (var a in avatars) _people.Add(new PersonVm(a.Id, a.Name, $"{a.Distance:0.0} m"));
+        if (avatars.Count > 0) BakeAvatarsIfDue(false);
+    }
+
+    /// <summary>Load rigged mesh bodies for nearby avatars (throttled).</summary>
+    private void BakeAvatarsIfDue(bool force)
+    {
+        if (!force && (DateTime.UtcNow - _lastAvatarBake).TotalSeconds < 25) return;
+        _lastAvatarBake = DateTime.UtcNow;
+        _sl.Avatars.BakeNearby(_sl.CullEngine.AvatarPosition(), _sl.CullEngine.CullRadius);
     }
 
     private void OnFriendsUpdated(IReadOnlyList<FriendEntry> friends)

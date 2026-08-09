@@ -15,6 +15,8 @@ public sealed class SecondLifeService
     public SpatialCullEngine CullEngine { get; }
     public WorldService World { get; }
     public SceneBaker Baker { get; }
+    public TextureTintCache Tints { get; }
+    public AvatarBaker Avatars { get; }
     public AudioStreamService Audio { get; } = new();
 
     public bool IsConnected => Client.Network.Connected;
@@ -58,7 +60,9 @@ public sealed class SecondLifeService
 
         CullEngine = new SpatialCullEngine(Client);
         World = new WorldService(Client);
-        Baker = new SceneBaker(Client, CullEngine);
+        Tints = new TextureTintCache(Client);
+        Baker = new SceneBaker(Client, CullEngine, Tints);
+        Avatars = new AvatarBaker(Client, Tints);
 
         // ---- network callbacks -> UI thread ----
         Client.Self.ChatFromSimulator += (s, e) =>
@@ -378,6 +382,8 @@ public sealed class SecondLifeService
         KeepAlive.Stop();
         CullEngine.Stop();
         Baker.Clear();
+        Avatars.Clear();
+        Tints.Clear();
         World.Stop();
         Audio.Stop();
         if (IsConnected) Client.Network.Logout();
