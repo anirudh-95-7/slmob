@@ -7,6 +7,14 @@ namespace SLMobileViewer.Services;
 public sealed record NearbyAvatar(UUID Id, string Name, float Distance, Vector3 Position, Quaternion Rotation);
 public sealed record FriendEntry(UUID Id, string Name, bool IsOnline);
 
+/// <summary>
+/// An incoming teleport-related request.
+/// <para>Offer = someone wants to teleport you to them (you Accept/Decline).</para>
+/// <para>LureRequest = someone is asking YOU to send them a teleport.</para>
+/// </summary>
+public sealed record TeleportOffer(UUID FromId, string FromName, UUID SessionId,
+                                   string Message, bool IsLureRequest);
+
 /// <summary>One IM conversation with a single agent.</summary>
 public sealed class ImThread
 {
@@ -37,6 +45,7 @@ public sealed class WorldService
     public event Action<string>? Notice;
     public event Action<ImThread>? GroupUpdated;
     public event Action<UUID, Avatar.AvatarProperties>? ProfileReceived;
+    public event Action<TeleportOffer>? TeleportOfferReceived;
 
     public IReadOnlyCollection<ImThread> Threads => _threads.Values.ToList();
     public IReadOnlyCollection<ImThread> GroupThreads => _groups.Values.ToList();
@@ -73,6 +82,31 @@ public sealed class WorldService
         {
             var im = e.IM;
             if (im.FromAgentID == _client.Self.AgentID) return;
+
+            // ---- teleport traffic ----
+            if (im.Dialog == InstantMessageDialog.RequestTeleport ||
+                im.Dialog == InstantMessageDialog.GodLikeRequestTeleport)
+            {
+                var offer = new TeleportOffer(im.FromAgentID, im.FromAgentName,
+                    im.IMSessionID, im.Message ?? "", false);
+                MainThread.BeginInvokeOnMainThread(() => TeleportOfferReceived?.Invoke(offer));
+                return;
+            }
+            if (im.Dialog == InstantMessageDialog.RequestLure)
+            {
+                var offer = new TeleportOffer(im.FromAgentID, im.FromAgentName,
+                    im.IMSessionID, im.Message ?? "", true);
+                MainThread.BeginInvokeOnMainThread(() => TeleportOfferReceived?.Invoke(offer));
+                return;
+            }
+            if (im.Dialog == InstantMessageDialog.AcceptTeleport ||
+                im.Dialog == InstantMessageDialog.DenyTeleport)
+            {
+                string verb = im.Dialog == InstantMessageDialog.AcceptTeleport ? "accepted" : "declined";
+                MainThread.BeginInvokeOnMainThread(() =>
+                    Notice?.Invoke($"* {im.FromAgentName} {verb} your teleport offer"));
+                return;
+            }
 
             bool isGroupChat = im.GroupIM ||
                                im.Dialog == InstantMessageDialog.SessionSend ||

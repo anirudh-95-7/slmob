@@ -28,6 +28,7 @@ public sealed class SecondLifeService
     private CancellationTokenSource? _reconnectCts;
 
     public event Action<string>? ConnectionStateChanged;
+    public event Action<string, bool>? TeleportStatus;   // message, finished
 
     // UI-thread events
     public event Action<string>? ChatReceived;
@@ -95,6 +96,14 @@ public sealed class SecondLifeService
             // Anything other than our own logout should trigger reconnection.
             if (!_intentionalLogout && e.Reason != NetworkManager.DisconnectType.ClientInitiated)
                 BeginReconnect();
+        };
+
+        Client.Self.TeleportProgress += (s, e) =>
+        {
+            bool done = e.Status == LibreMetaverse.TeleportStatus.Finished
+                     || e.Status == LibreMetaverse.TeleportStatus.Failed;
+            MainThread.BeginInvokeOnMainThread(() =>
+                TeleportStatus?.Invoke($"Teleport: {e.Message}", done));
         };
 
         // Offline IMs arrive once the event queue is live and caps are ready.
@@ -263,6 +272,37 @@ public sealed class SecondLifeService
         _reconnectCts?.Cancel();
         _reconnectAttempt = 0;
         BeginReconnect();
+    }
+
+    // ---------------- teleport ----------------
+
+    /// <summary>Accept or decline an incoming teleport offer.</summary>
+    public void RespondToTeleport(UUID requesterId, UUID sessionId, bool accept)
+    {
+        try { Client.Self.TeleportLureRespond(requesterId, sessionId, accept); } catch { }
+    }
+
+    /// <summary>Offer to teleport someone to you.</summary>
+    public void OfferTeleport(UUID targetId, string message = "Join me")
+    {
+        try { Client.Self.SendTeleportLure(targetId, message); } catch { }
+    }
+
+    /// <summary>Ask someone to teleport you to them.</summary>
+    public void RequestTeleportFrom(UUID targetId, string message = "Can I join you?")
+    {
+        try { Client.Self.SendTeleportLureRequest(targetId, message); } catch { }
+    }
+
+    /// <summary>Teleport to a named region.</summary>
+    public async Task<bool> TeleportToRegionAsync(string simName, Vector3 pos)
+    {
+        try
+        {
+            return await Client.Self.TeleportAsync(simName, pos, new Vector3(0, 1, 0))
+                                    .ConfigureAwait(false);
+        }
+        catch { return false; }
     }
 
     // ---------------- movement ----------------

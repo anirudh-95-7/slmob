@@ -22,6 +22,7 @@ public partial class MainPage : ContentPage
     private IDispatcherTimer? _renderTimer;
 
     private Primitive? _selectedPrim;
+    private TeleportOffer? _activeTpOffer;
     private Vector3 _lastDrawnPos = Vector3.Zero;
     private DateTime _lastAvatarBake = DateTime.MinValue;
     private bool _forceRedraw = true;
@@ -47,6 +48,8 @@ public partial class MainPage : ContentPage
         _sl.Baker.Progress += OnBakeProgress;
         _sl.ConnectionStateChanged += OnConnectionStateChanged;
         _sl.Avatars.Progress += msg => { BakeLabel.Text = msg; _forceRedraw = true; };
+        _sl.World.TeleportOfferReceived += ShowTeleportOffer;
+        _sl.TeleportStatus += OnTeleportStatus;
 
         RangePicker.ItemsSource = new List<string> { "20 m", "40 m", "64 m", "96 m" };
         RangePicker.SelectedIndex = 0;
@@ -89,6 +92,103 @@ public partial class MainPage : ContentPage
         StatusLabel.Text = "reconnecting…";
         ConnDot.Fill = Brush.Orange;
         _sl.ReconnectNow();
+    }
+
+    // ---------- teleport ----------
+    private void ShowTeleportOffer(TeleportOffer offer)
+    {
+        _activeTpOffer = offer;
+
+        if (offer.IsLureRequest)
+        {
+            TpTitle.Text = $"{offer.FromName} asks to teleport to you";
+            TpMessage.Text = string.IsNullOrWhiteSpace(offer.Message)
+                ? "Send them a teleport?" : offer.Message;
+            TpAcceptButton.Text = "Send teleport";
+        }
+        else
+        {
+            TpTitle.Text = $"{offer.FromName} offers you a teleport";
+            TpMessage.Text = string.IsNullOrWhiteSpace(offer.Message)
+                ? "Accept and travel to them?" : offer.Message;
+            TpAcceptButton.Text = "Accept";
+        }
+
+        TeleportOverlay.IsVisible = true;
+    }
+
+    private void OnTeleportAccept(object? sender, EventArgs e)
+    {
+        var offer = _activeTpOffer;
+        TeleportOverlay.IsVisible = false;
+        _activeTpOffer = null;
+        if (offer == null) return;
+
+        if (offer.IsLureRequest)
+        {
+            _sl.OfferTeleport(offer.FromId);
+            AppendChat($"* Sent a teleport to {offer.FromName}");
+        }
+        else
+        {
+            _sl.RespondToTeleport(offer.FromId, offer.SessionId, true);
+            AppendChat($"* Accepting teleport from {offer.FromName}");
+        }
+    }
+
+    private void OnTeleportDecline(object? sender, EventArgs e)
+    {
+        var offer = _activeTpOffer;
+        TeleportOverlay.IsVisible = false;
+        _activeTpOffer = null;
+        if (offer == null) return;
+
+        if (!offer.IsLureRequest)
+            _sl.RespondToTeleport(offer.FromId, offer.SessionId, false);
+        AppendChat($"* Declined {offer.FromName}'s teleport");
+    }
+
+    private async void OnTeleportToRegion(object? sender, EventArgs e)
+    {
+        var region = RegionEntry.Text?.Trim();
+        if (string.IsNullOrWhiteSpace(region)) return;
+
+        TpButton.IsEnabled = false;
+        StatusLabel.Text = $"Teleporting to {region}…";
+        bool ok = await _sl.TeleportToRegionAsync(region, new Vector3(128, 128, 30));
+        TpButton.IsEnabled = true;
+        AppendChat(ok ? $"* Arrived in {region}" : $"* Teleport to {region} failed");
+    }
+
+    private void OnTeleportStatus(string message, bool finished)
+    {
+        StatusLabel.Text = message;
+        if (!finished) return;
+
+        // We've moved: the baked scene belongs to the old location.
+        _sl.Baker.Clear();
+        _sl.Avatars.Clear();
+        World3D.SelectedLocalId = 0;
+        _selectedPrim = null;
+        SelectionCard.IsVisible = false;
+        BuildButton.Text = "Build scene";
+        BakeLabel.Text = "New location — tap Build scene";
+        ExtendButton.IsVisible = false;
+        _forceRedraw = true;
+    }
+
+    private void OnProfileOfferTp(object? sender, EventArgs e)
+    {
+        if (_profileId == UUID.Zero) return;
+        _sl.OfferTeleport(_profileId);
+        AppendChat($"* Offered a teleport to {_profileName}");
+    }
+
+    private void OnProfileRequestTp(object? sender, EventArgs e)
+    {
+        if (_profileId == UUID.Zero) return;
+        _sl.RequestTeleportFrom(_profileId);
+        AppendChat($"* Asked {_profileName} for a teleport");
     }
 
     // ---------- theme ----------

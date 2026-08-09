@@ -115,6 +115,13 @@
                                 Style="{StaticResource Ghost}" Clicked="OnToggleFly" />
                     </Grid>
 
+                    <!-- teleport to region -->
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                        <Entry x:Name="RegionEntry" Placeholder="Region name to teleport to…" FontSize="13" />
+                        <Button Grid.Column="1" x:Name="TpButton" Text="Teleport" FontSize="12"
+                                Padding="10,6" Clicked="OnTeleportToRegion" />
+                    </Grid>
+
                     <!-- range + audio -->
                     <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="6">
                         <Label Text="Range" VerticalOptions="Center" Style="{StaticResource Muted}" />
@@ -294,6 +301,10 @@
                                 <Button Text="Send IM" Clicked="OnProfileIm" />
                                 <Button Text="Add friend" Style="{StaticResource Ghost}" Clicked="OnProfileFriend" />
                             </HorizontalStackLayout>
+                            <HorizontalStackLayout Spacing="8">
+                                <Button Text="Offer teleport" Style="{StaticResource Ghost}" Clicked="OnProfileOfferTp" />
+                                <Button Text="Ask to teleport" Style="{StaticResource Ghost}" Clicked="OnProfileRequestTp" />
+                            </HorizontalStackLayout>
                         </VerticalStackLayout>
                     </Border>
                 </VerticalStackLayout>
@@ -308,6 +319,20 @@
                 <Button Grid.Column="4" x:Name="TabIm" Text="IM" FontSize="11" Padding="0,8" Clicked="OnTabIm" />
                 <Button Grid.Column="5" x:Name="TabGroups" Text="Groups" FontSize="11" Padding="0,8" Clicked="OnTabGroups" />
             </Grid>
+        </Grid>
+
+        <!-- TELEPORT OFFER -->
+        <Grid x:Name="TeleportOverlay" IsVisible="False" BackgroundColor="#99000000">
+            <Border VerticalOptions="Center" Style="{StaticResource Card}" Margin="16">
+                <VerticalStackLayout Spacing="10">
+                    <Label x:Name="TpTitle" Style="{StaticResource Title}" />
+                    <Label x:Name="TpMessage" FontSize="13" />
+                    <HorizontalStackLayout Spacing="8">
+                        <Button x:Name="TpAcceptButton" Text="Accept" Clicked="OnTeleportAccept" />
+                        <Button Text="Decline" Style="{StaticResource Ghost}" Clicked="OnTeleportDecline" />
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+            </Border>
         </Grid>
 
         <!-- LSL BLUE MENU -->
