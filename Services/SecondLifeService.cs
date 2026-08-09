@@ -19,6 +19,14 @@ public sealed class SecondLifeService
 
     public bool IsConnected => Client.Network.Connected;
 
+    // Stored for automatic reconnection after an unexpected drop.
+    private string _first = "", _last = "", _pass = "", _start = "last";
+    private bool _intentionalLogout;
+    private int _reconnectAttempt;
+    private CancellationTokenSource? _reconnectCts;
+
+    public event Action<string>? ConnectionStateChanged;
+
     // UI-thread events
     public event Action<string>? ChatReceived;
     public event Action<ScriptDialogEventArgs>? ScriptDialogReceived;
@@ -73,7 +81,24 @@ public sealed class SecondLifeService
             MainThread.BeginInvokeOnMainThread(() => ScriptDialogReceived?.Invoke(e));
 
         Client.Network.Disconnected += (s, e) =>
-            MainThread.BeginInvokeOnMainThread(() => StatusChanged?.Invoke($"Disconnected: {e.Message}"));
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                StatusChanged?.Invoke($"Disconnected: {e.Message}");
+                ConnectionStateChanged?.Invoke("disconnected");
+            });
+
+            // Anything other than our own logout should trigger reconnection.
+            if (!_intentionalLogout && e.Reason != NetworkManager.DisconnectType.ClientInitiated)
+                BeginReconnect();
+        };
+
+        // Offline IMs arrive once the event queue is live and caps are ready.
+        Client.Network.EventQueueRunning += (s, e) =>
+        {
+            MainThread.BeginInvokeOnMainThread(() => ConnectionStateChanged?.Invoke("connected"));
+            _ = FetchOfflineMessagesAsync();
+        };
 
         Client.Network.SimConnected += (s, e) =>
             MainThread.BeginInvokeOnMainThread(() => StatusChanged?.Invoke($"Connected to {e.Simulator.Name}"));
@@ -86,6 +111,12 @@ public sealed class SecondLifeService
         {
             // SL legacy protocol: only the first 16 chars of the password are hashed.
             if (password.Length > 16) password = password[..16];
+
+            _first = firstName.Trim();
+            _last = lastName.Trim();
+            _pass = password;
+            _start = startLocation;
+            _intentionalLogout = false;
             lock (_loginTrace) _loginTrace.Clear();
 
             var lp = Client.Network.DefaultLoginParams(
@@ -121,6 +152,7 @@ public sealed class SecondLifeService
                 await SetAdultMaturityAsync().ConfigureAwait(false);
                 CullEngine.Start();
                 World.Start();
+                KeepAlive.Start();
             }
             if (ok) return (true, Client.Network.LoginMessage);
 
@@ -150,6 +182,84 @@ public sealed class SecondLifeService
     /// <summary>Reply to an LSL llDialog blue menu.</summary>
     public void ReplyToScriptDialog(int channel, int buttonIndex, string buttonLabel, UUID objectID)
         => Client.Self.ReplyToScriptDialog(channel, buttonIndex, buttonLabel, objectID);
+
+    /// <summary>Pull stored offline IMs (uses the ReadOfflineMsgs capability).</summary>
+    public async Task FetchOfflineMessagesAsync()
+    {
+        try
+        {
+            await Task.Delay(2500).ConfigureAwait(false);   // let caps settle
+            await Client.Self.RetrieveInstantMessagesAsync().ConfigureAwait(false);
+            MainThread.BeginInvokeOnMainThread(() =>
+                StatusChanged?.Invoke("Checked for offline messages"));
+        }
+        catch (Exception ex)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+                StatusChanged?.Invoke($"Offline message fetch failed: {ex.Message}"));
+        }
+    }
+
+    /// <summary>Reconnect with exponential backoff after an unexpected drop.</summary>
+    private void BeginReconnect()
+    {
+        if (string.IsNullOrEmpty(_first) || string.IsNullOrEmpty(_pass)) return;
+        _reconnectCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _reconnectCts = cts;
+
+        Task.Run(async () =>
+        {
+            _reconnectAttempt = 0;
+            while (!cts.IsCancellationRequested && !IsConnected && !_intentionalLogout)
+            {
+                _reconnectAttempt++;
+                int delay = Math.Min(5 * (int)Math.Pow(2, Math.Min(_reconnectAttempt - 1, 4)), 60);
+
+                for (int i = delay; i > 0 && !cts.IsCancellationRequested; i--)
+                {
+                    int secs = i;
+                    MainThread.BeginInvokeOnMainThread(() =>
+                        ConnectionStateChanged?.Invoke($"reconnecting in {secs}s (try {_reconnectAttempt})"));
+                    await Task.Delay(1000, CancellationToken.None).ConfigureAwait(false);
+                }
+                if (cts.IsCancellationRequested) return;
+
+                MainThread.BeginInvokeOnMainThread(() =>
+                    ConnectionStateChanged?.Invoke($"reconnecting… (try {_reconnectAttempt})"));
+
+                var (ok, msg) = await LoginAsync(_first, _last, _pass, _start).ConfigureAwait(false);
+                if (ok)
+                {
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        ConnectionStateChanged?.Invoke("connected");
+                        StatusChanged?.Invoke("Reconnected");
+                    });
+                    return;
+                }
+
+                MainThread.BeginInvokeOnMainThread(() =>
+                    StatusChanged?.Invoke($"Reconnect failed: {msg}"));
+
+                if (_reconnectAttempt >= 12)
+                {
+                    MainThread.BeginInvokeOnMainThread(() =>
+                        ConnectionStateChanged?.Invoke("offline — tap Reconnect"));
+                    return;
+                }
+            }
+        }, cts.Token);
+    }
+
+    /// <summary>Manual reconnect from the UI.</summary>
+    public void ReconnectNow()
+    {
+        _intentionalLogout = false;
+        _reconnectCts?.Cancel();
+        _reconnectAttempt = 0;
+        BeginReconnect();
+    }
 
     // ---------------- movement ----------------
 
@@ -263,6 +373,9 @@ public sealed class SecondLifeService
 
     public void Logout()
     {
+        _intentionalLogout = true;
+        _reconnectCts?.Cancel();
+        KeepAlive.Stop();
         CullEngine.Stop();
         Baker.Clear();
         World.Stop();

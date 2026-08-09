@@ -43,6 +43,7 @@ public partial class MainPage : ContentPage
         World3D.Baker = _sl.Baker;
         World3D.Picked += OnWorldPicked;
         _sl.Baker.Progress += OnBakeProgress;
+        _sl.ConnectionStateChanged += OnConnectionStateChanged;
 
         RangePicker.ItemsSource = new List<string> { "20 m", "40 m", "64 m", "96 m" };
         RangePicker.SelectedIndex = 0;
@@ -66,6 +67,25 @@ public partial class MainPage : ContentPage
     {
         _chatLines.Add(line);
         while (_chatLines.Count > 300) _chatLines.RemoveAt(0);
+    }
+
+    // ---------- connection ----------
+    private void OnConnectionStateChanged(string state)
+    {
+        StatusLabel.Text = state;
+        bool live = state.StartsWith("connected", StringComparison.OrdinalIgnoreCase);
+        bool trying = state.Contains("reconnect", StringComparison.OrdinalIgnoreCase);
+
+        ConnDot.Fill = live ? Brush.LimeGreen : (trying ? Brush.Orange : Brush.OrangeRed);
+        ReconnectButton.IsVisible = !live && !trying;
+    }
+
+    private void OnReconnect(object? sender, EventArgs e)
+    {
+        ReconnectButton.IsVisible = false;
+        StatusLabel.Text = "reconnecting…";
+        ConnDot.Fill = Brush.Orange;
+        _sl.ReconnectNow();
     }
 
     // ---------- theme ----------

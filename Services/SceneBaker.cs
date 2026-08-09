@@ -26,7 +26,8 @@ public sealed class SceneBaker
 {
     private readonly GridClient _client;
     private readonly SpatialCullEngine _cull;
-    private readonly SimpleRenderer _renderer = new();
+    private readonly MeshFoundry _renderer = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<UUID, FacetedMesh?> _assetCache = new();
 
     private volatile BakedTri[] _tris = Array.Empty<BakedTri>();
     private CancellationTokenSource? _cts;
@@ -127,7 +128,7 @@ public sealed class SceneBaker
                 return;
             }
 
-            var tris = BuildPrim(prim, origin);
+            var tris = BuildPrimAsync(prim, origin, token).GetAwaiter().GetResult();
             lock (_lock) _accum.AddRange(tris);
 
             // publish partial results so the world appears bit by bit
@@ -140,7 +141,7 @@ public sealed class SceneBaker
             }
 
             // stay friendly to the UI thread and the battery
-            if (done % 12 == 0) Thread.Sleep(12);
+            if (done % 12 == 0) Thread.Sleep(8);
         }
 
         Publish();
@@ -163,21 +164,35 @@ public sealed class SceneBaker
 
     // ---------------- geometry ----------------
 
-    private List<BakedTri> BuildPrim(Primitive prim, Vector3 origin)
+    /// <summary>
+    /// Builds real geometry for a primitive. Mesh and sculpted objects (which is most
+    /// modern furniture, buildings and avatar attachments) need their asset downloaded
+    /// and decoded first — that is why a bake takes a little time.
+    /// </summary>
+    private async Task<List<BakedTri>> BuildPrimAsync(Primitive prim, Vector3 origin, CancellationToken token)
     {
         var result = new List<BakedTri>();
         float size = MathF.Max(prim.Scale.X, MathF.Max(prim.Scale.Y, prim.Scale.Z));
         float dist = Vector3.Distance(origin, prim.Position);
 
-        // Level of detail by physical size and distance — keeps the budget honest.
         var lod = (size > 6f && dist < 20f) ? DetailLevel.Medium : DetailLevel.Low;
 
         FacetedMesh? mesh = null;
-        bool isSculptOrMesh = prim.Sculpt != null;
-        if (!isSculptOrMesh)
+        var sculpt = prim.Sculpt;
+
+        if (sculpt == null || sculpt.SculptTexture == UUID.Zero)
         {
+            // legacy prim: pure procedural geometry
             try { mesh = _renderer.GenerateFacetedMesh(prim, lod); }
             catch { mesh = null; }
+        }
+        else if (IsMeshAsset(sculpt))
+        {
+            mesh = await LoadMeshAssetAsync(prim, sculpt.SculptTexture, lod, token).ConfigureAwait(false);
+        }
+        else
+        {
+            mesh = await LoadSculptAsync(prim, sculpt.SculptTexture, lod, token).ConfigureAwait(false);
         }
 
         if (mesh == null || mesh.Faces.Count == 0)
@@ -209,6 +224,65 @@ public sealed class SceneBaker
             }
         }
         return result;
+    }
+
+    private static bool IsMeshAsset(Primitive.SculptData sculpt)
+    {
+        try { return (sculpt.Type & (SculptType)0x3F) == SculptType.Mesh; }
+        catch { return false; }
+    }
+
+    /// <summary>Download + decode a mesh asset (cached: many objects share one mesh).</summary>
+    private async Task<FacetedMesh?> LoadMeshAssetAsync(Primitive prim, UUID assetId,
+        DetailLevel lod, CancellationToken token)
+    {
+        try
+        {
+            if (_assetCache.TryGetValue(assetId, out var cachedTemplate))
+            {
+                if (cachedTemplate == null) return null;
+                // re-decode against THIS prim so per-prim texture faces are right
+            }
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(12000);
+
+            var asset = await _client.Assets.RequestMeshAsync(assetId, timeout.Token).ConfigureAwait(false);
+            if (asset == null) { _assetCache[assetId] = null; return null; }
+
+            if (FacetedMesh.TryDecodeFromAsset(prim, asset, lod, out var mesh) && mesh != null)
+            {
+                _assetCache[assetId] = mesh;
+                return mesh;
+            }
+            _assetCache[assetId] = null;
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>Download + decode a sculpt map, then build the sculpted surface.</summary>
+    private async Task<FacetedMesh?> LoadSculptAsync(Primitive prim, UUID textureId,
+        DetailLevel lod, CancellationToken token)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(12000);
+
+            var tex = await _client.Assets.RequestImageAsync(textureId,
+                ImageType.Normal, timeout.Token).ConfigureAwait(false);
+            if (tex == null) return null;
+
+            if (tex.Image == null)
+            {
+                try { tex.Decode(); } catch { return null; }
+            }
+            if (tex.Image == null) return null;
+
+            return _renderer.GenerateFacetedSculptMesh(prim, tex.Image, lod);
+        }
+        catch { return null; }
     }
 
     private static Vector3 ToWorld(Vector3 local, Primitive prim)

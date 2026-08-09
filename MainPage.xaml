@@ -42,14 +42,22 @@
         <Grid x:Name="ViewportPanel" IsVisible="False" RowDefinitions="Auto,*,Auto" Padding="8,6" RowSpacing="6">
 
             <!-- header -->
-            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6">
                 <VerticalStackLayout>
                     <Label x:Name="SelfNameLabel" Text="" Style="{StaticResource Title}" />
-                    <Label x:Name="StatusLabel" Text="Connected" Style="{StaticResource Muted}" />
+                    <HorizontalStackLayout Spacing="6">
+                        <Ellipse x:Name="ConnDot" WidthRequest="9" HeightRequest="9"
+                                 VerticalOptions="Center" Fill="LimeGreen" />
+                        <Label x:Name="StatusLabel" Text="Connected" Style="{StaticResource Muted}"
+                               LineBreakMode="TailTruncation" />
+                    </HorizontalStackLayout>
                 </VerticalStackLayout>
-                <Button Grid.Column="1" x:Name="ThemeButton" Text="Theme" Style="{StaticResource Ghost}"
-                        Clicked="OnToggleTheme" />
-                <Button Grid.Column="2" Text="Log out" Style="{StaticResource Danger}" Clicked="OnLogoutClicked" />
+                <Button Grid.Column="1" x:Name="ReconnectButton" Text="Reconnect" Style="{StaticResource Ghost}"
+                        FontSize="12" IsVisible="False" Clicked="OnReconnect" />
+                <Button Grid.Column="2" x:Name="ThemeButton" Text="Theme" Style="{StaticResource Ghost}"
+                        FontSize="12" Clicked="OnToggleTheme" />
+                <Button Grid.Column="3" Text="Log out" Style="{StaticResource Danger}"
+                        FontSize="12" Clicked="OnLogoutClicked" />
             </Grid>
 
             <!-- WORLD -->
